@@ -9,7 +9,8 @@ from loguru import logger
 
 @dataclass
 class BadQueryException:
-    """ if result is query means that query is fixed and just give warning """
+    """if result is query means that query is fixed and just give warning"""
+
     name: str
     message: str
     result: str = None
@@ -28,6 +29,7 @@ class Settings(BaseModel):
         save_file_history: str
         max_rows: str - max rows for limit in sql query
     """
+
     # data
     default_data_var_name: str
     default_limit: Union[int, str]
@@ -51,10 +53,11 @@ class Settings(BaseModel):
     settings_file: Path = Path(__file__).parent / "settings" / "settings.json"
     usr_recents_file: Path = user_app_settings_dir / "history" / "recents.json"
     usr_settings_file: Path = user_app_settings_dir / "settings" / "settings.json"
-    default_settings_file: Path = Path(__file__).parent / "settings" / "default_settings.json"
+    default_settings_file: Path = (
+        Path(__file__).parent / "settings" / "default_settings.json"
+    )
     static_dir: Path = Path(__file__).parent / "static"
     user_logs_dir: Path = user_app_settings_dir / "logs"
-    
 
     def process(self):
         self.sql_keywords = list(set([i.upper().strip() for i in self.sql_keywords]))
@@ -62,48 +65,59 @@ class Settings(BaseModel):
         self.settings_file = Path(self.settings_file).resolve()
         self.default_settings_file = Path(self.default_settings_file).resolve()
         self.static_dir = Path(self.static_dir).resolve()
-    
 
     def render_vars(self, query: str) -> str:
-        """ render inside the query the vars of the settings """
+        """render inside the query the vars of the settings"""
         if not isinstance(query, str):
             return query
-        
-        query = query.replace("$(default_data_var_name)", str(self.default_data_var_name))
+
+        query = query.replace(
+            "$(default_data_var_name)", str(self.default_data_var_name)
+        )
         query = query.replace("$(default_limit)", str(self.default_limit))
-        query = query.replace("$(default_sql_font_size)", str(self.default_sql_font_size))
+        query = query.replace(
+            "$(default_sql_font_size)", str(self.default_sql_font_size)
+        )
         query = query.replace("$(default_sql_query)", str(self.default_sql_query))
         query = query.replace("$(default_sql_font)", str(self.default_sql_font))
         return query
-    
-    
+
     @classmethod
     def reset_user_settings(cls):
-        """  """
+        """ """
         user_app_settings_dir: Path = Path.home() / ".ParVu"
-        shutil.copytree(Path(__file__).parent / "settings", 
-                            user_app_settings_dir / "settings",
-                            dirs_exist_ok=True)
-            
-        shutil.copytree(Path(__file__).parent / "history",
-                        user_app_settings_dir / "history",
-                        dirs_exist_ok=True)
-        
+        shutil.copytree(
+            Path(__file__).parent / "settings",
+            user_app_settings_dir / "settings",
+            dirs_exist_ok=True,
+        )
+
+        shutil.copytree(
+            Path(__file__).parent / "history",
+            user_app_settings_dir / "history",
+            dirs_exist_ok=True,
+        )
+
         # fill with default settings
-        with (Path(__file__).parent / "settings" / "default_settings.json").open('r') as f:
+        with (Path(__file__).parent / "settings" / "default_settings.json").open(
+            "r"
+        ) as f:
             with open(Path(__file__).parent / "history" / "recents.json") as r:
-                (user_app_settings_dir / 'settings' / 'settings.json').write_text(f.read())
-                (user_app_settings_dir / 'history' / 'recents.json').write_text(r.read())
+                (user_app_settings_dir / "settings" / "settings.json").write_text(
+                    f.read()
+                )
+                (user_app_settings_dir / "history" / "recents.json").write_text(
+                    r.read()
+                )
 
     @classmethod
     def get_user_settings(cls):
         user_app_settings_dir: Path = Path.home() / ".ParVu"
-        settings = (user_app_settings_dir / "settings" / "settings.json")
-        with settings.open('r') as f:
+        settings = user_app_settings_dir / "settings" / "settings.json"
+        with settings.open("r") as f:
             settings_data = f.read()
 
             return cls.model_validate_json(settings_data)
-
 
     @classmethod
     def load_settings(cls):
@@ -117,7 +131,7 @@ class Settings(BaseModel):
             model.process()
 
         except Exception as e:
-            # reset and load 
+            # reset and load
             logger.error(e)
             logger.critical(f"Resetting user settings")
             cls.reset_user_settings()
@@ -133,11 +147,13 @@ class Settings(BaseModel):
         with open(self.usr_settings_file, "w") as f:
             f.writelines(settings_json.splitlines())
 
+
 settings = Settings.load_settings()
 
 
 class Recents(BaseModel):
-    """ Recent opened files history """
+    """Recent opened files history"""
+
     recents: list[str]
 
     @classmethod
@@ -148,7 +164,7 @@ class Recents(BaseModel):
 
         model = cls.model_validate_json(recents_data)
         return model
-    
+
     def add_recent(self, path):
         # add browsed file to recents
         self.recents.insert(0, path)
@@ -161,10 +177,5 @@ class Recents(BaseModel):
         with open(settings.usr_recents_file, "w") as f:
             f.writelines(recents_json.splitlines())
 
+
 recents = Recents.load_recents()
-
-
-
-
-
-

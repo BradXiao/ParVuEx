@@ -6,7 +6,7 @@ import duckdb
 
 
 def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
-    """ returns md like formatted df.info """
+    """returns md like formatted df.info"""
     shape = duckdf.shape
 
     output_buffer = StringIO()
@@ -31,12 +31,14 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
 
         # Build the markdown table
         markdown_table = "| " + " | ".join(headers) + " |\n"
-        markdown_table += "|-" + "-|-".join(["-" * len(header) for header in headers]) + "-|\n"
+        markdown_table += (
+            "|-" + "-|-".join(["-" * len(header) for header in headers]) + "-|\n"
+        )
         markdown_table += "| " + " | ".join(types) + " |\n"
         for row in data:
             markdown_table += "| " + " | ".join(row) + " |\n"
 
         return h + markdown_table
-    
+
     except Exception as e:
-        return h + '\n' + descr
+        return h + "\n" + descr
