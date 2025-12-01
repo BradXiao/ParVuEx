@@ -30,6 +30,8 @@ from PyQt5.QtWidgets import (
     QGraphicsOpacityEffect,
     QSizePolicy,
     QToolTip,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 from PyQt5.QtGui import (
     QFont,
@@ -109,6 +111,30 @@ def get_instance_mode() -> str:
 
 def is_multi_window_mode() -> bool:
     return get_instance_mode() == INSTANCE_MODE_MULTI_WINDOW
+
+
+class AutoWrapDelegate(QStyledItemDelegate):
+    """Delegate that wraps text when the row is tall enough but still elides overflow."""
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        min_wrapped_lines: int = 2,
+    ):
+        super().__init__(parent)
+        self.min_wrapped_lines = max(1, min_wrapped_lines)
+
+    def initStyleOption(self, option: QStyleOptionViewItem, index):
+        super().initStyleOption(option, index)
+        line_height = option.fontMetrics.lineSpacing()
+        wrap_threshold = line_height * self.min_wrapped_lines
+        option.textElideMode = Qt.ElideRight
+        if option.rect.height() >= wrap_threshold:
+            option.features |= QStyleOptionViewItem.WrapText
+            option.displayAlignment = Qt.AlignLeft | Qt.AlignVCenter
+        else:
+            option.features &= ~QStyleOptionViewItem.WrapText
+            option.displayAlignment = Qt.AlignLeft | Qt.AlignVCenter
 
 
 class ParquetSQLApp(QMainWindow):
@@ -286,6 +312,9 @@ class ParquetSQLApp(QMainWindow):
         self.resultTable.setStyleSheet(
             f"background-color: {settings.colour_resultTable}"
         )
+        self.resultTable.setWordWrap(True)
+        self._wrap_delegate = AutoWrapDelegate(self.resultTable, min_wrapped_lines=2)
+        self.resultTable.setItemDelegate(self._wrap_delegate)
         self.resultTable.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.resultTable.setContextMenuPolicy(Qt.CustomContextMenu)
         self.resultTable.installEventFilter(self)
@@ -1134,7 +1163,8 @@ class ParquetSQLApp(QMainWindow):
         # Fill the table with the DataFrame data
         for i in range(len(df.index)):
             for j in range(len(df.columns)):
-                self.resultTable.setItem(i, j, QTableWidgetItem(str(df.iat[i, j])))
+                item = QTableWidgetItem(str(df.iat[i, j]))
+                self.resultTable.setItem(i, j, item)
 
         page_rows = len(df.index)
         start_index = self._current_page_row_offset()
