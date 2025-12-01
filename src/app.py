@@ -1367,8 +1367,13 @@ class ParquetSQLApp(QMainWindow):
         if not as_dict:
             values = self.df.iloc[row, :].tolist()
         else:
-            values = json.dumps(
-                self.df.iloc[row, :].to_dict(), indent=4, ensure_ascii=False
+            txt =  self.df.iloc[row, :].to_dict()
+            for key in list(txt.keys()):
+                if txt[key] is None or isinstance(txt[key], (int,float,bool,str)):
+                    continue
+                txt[key] = str(txt[key]) # try to convert to string
+
+            values = json.dumps(txt , indent=4, ensure_ascii=False
             )
         clipboard = QApplication.clipboard()
         clipboard.setText(str(values))

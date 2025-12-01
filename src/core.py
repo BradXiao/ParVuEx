@@ -5,6 +5,7 @@ import pandas as pd
 import duckdb
 import pyarrow.parquet as pq
 import pyarrow as pa
+import pyarrow.types as patypes
 from loguru import logger
 
 from utils import read_table, nth_from_generator, copy_count_gen_items
@@ -12,6 +13,40 @@ from schemas import settings
 
 
 logger.add(settings.user_logs_dir / "file_{time}.log")
+
+
+def _pyarrow_types_mapper(pa_type: pa.DataType):
+    """
+    Ensure nullable-compatible pandas dtypes (Int64, Float64, boolean, string[pyarrow]).
+    This preserves integer columns with nulls so they don't get coerced to floats.
+    """
+
+    if patypes.is_integer(pa_type):
+        return pd.Int64Dtype()
+    if patypes.is_boolean(pa_type):
+        return pd.BooleanDtype()
+    if patypes.is_floating(pa_type):
+        return pd.Float64Dtype()
+    if patypes.is_string(pa_type) or patypes.is_large_string(pa_type):
+        string_dtype = getattr(pd, "StringDtype", None)
+        if callable(string_dtype):
+            try:
+                return string_dtype(storage="pyarrow")
+            except TypeError:
+                return string_dtype()
+    if hasattr(pd, "ArrowDtype") and any(
+        checker(pa_type)
+        for checker in (
+            patypes.is_timestamp,
+            patypes.is_date32,
+            patypes.is_date64,
+            patypes.is_time32,
+            patypes.is_time64,
+        )
+    ):
+        # Keeps timestamp/date/time precision using pyarrow-backed dtype.
+        return pd.ArrowDtype(pa_type)
+    return None
 
 
 class Reader:
@@ -105,7 +140,9 @@ class Reader:
         pa_batch = nth_from_generator(self.batches, n - 1)
         if pa_batch is None:
             return pd.DataFrame(columns=self.columns_query) if as_df else None
-        return pa_batch.to_pandas() if as_df else pa_batch
+        if not as_df:
+            return pa_batch
+        return pa_batch.to_pandas(types_mapper=_pyarrow_types_mapper)
 
     def search(
         self, search_query: str, column: str, as_df: bool = False, case: bool = False
