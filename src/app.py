@@ -234,6 +234,7 @@ class ParquetSQLApp(QMainWindow):
         self.is_secondary = is_secondary
         # use this variable to store opened files path
         self.file_path: Optional[Path] = Path(file_path) if file_path else None
+        self._last_column_widths: list[tuple[str, int]] | None = None
 
         self.initUI()
         self.applySettingsToUi()
@@ -442,9 +443,20 @@ class ParquetSQLApp(QMainWindow):
         if not self._column_names or not hasattr(self, "resultTable"):
             return widths
         column_count = min(len(self._column_names), self.resultTable.columnCount())
+        if self._last_column_widths is None:
+            self._last_column_widths = []
+            for idx in range(column_count):
+                width = self.resultTable.columnWidth(idx)
+                self._last_column_widths.append((self._column_names[idx], width))
+
         for idx in range(column_count):
+            last_name, last_width = self._last_column_widths[idx]
             width = self.resultTable.columnWidth(idx)
-            if width > 0:
+            if (
+                width > 0
+                and last_name == self._column_names[idx]
+                and last_width != width
+            ):
                 widths[self._column_names[idx]] = width
         return widths
 
@@ -576,6 +588,8 @@ class ParquetSQLApp(QMainWindow):
         if hasattr(self, "reloadAction"):
             self.reloadAction.setEnabled(has_file)
         self.updateInstanceActions()
+        if not has_file:
+            self._last_column_widths = None
 
     def updateInstanceActions(self):
         multi_mode = is_multi_window_mode()
@@ -1047,6 +1061,7 @@ class ParquetSQLApp(QMainWindow):
         self.page = 1
         self.loadPage()
         self.update_page_text()
+        self._last_column_widths = None
 
     def executeQuery(self):
         query_text = self.sqlEdit.toPlainText()
@@ -1054,6 +1069,7 @@ class ParquetSQLApp(QMainWindow):
         self.page = 1
         self.loadPage(query=query_text)
         self.update_page_text()
+        self._last_column_widths = None
 
     def startLoadingAnimation(self):
         if self.loading:
@@ -1199,9 +1215,10 @@ class ParquetSQLApp(QMainWindow):
             self.resultTable.setCurrentCell(0, 0)
 
         self._is_applying_column_widths = True
-        if not self._restore_column_widths():
-            self.resultTable.resizeColumnsToContents()
-            self._limit_max_column_widths()
+        self.resultTable.resizeColumnsToContents()
+        self._limit_max_column_widths()
+        self._restore_column_widths()
+        self._collect_current_column_widths()
         self._is_applying_column_widths = False
 
     def update_page_text(self):
@@ -1367,14 +1384,13 @@ class ParquetSQLApp(QMainWindow):
         if not as_dict:
             values = self.df.iloc[row, :].tolist()
         else:
-            txt =  self.df.iloc[row, :].to_dict()
+            txt = self.df.iloc[row, :].to_dict()
             for key in list(txt.keys()):
-                if txt[key] is None or isinstance(txt[key], (int,float,bool,str)):
+                if txt[key] is None or isinstance(txt[key], (int, float, bool, str)):
                     continue
-                txt[key] = str(txt[key]) # try to convert to string
+                txt[key] = str(txt[key])  # try to convert to string
 
-            values = json.dumps(txt , indent=4, ensure_ascii=False
-            )
+            values = json.dumps(txt, indent=4, ensure_ascii=False)
         clipboard = QApplication.clipboard()
         clipboard.setText(str(values))
 
