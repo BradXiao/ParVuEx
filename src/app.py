@@ -483,10 +483,29 @@ class ParquetSQLApp(QMainWindow):
         header = self.resultTable.horizontalHeader()
         if header:
             header.setStyleSheet("QHeaderView::section { padding: 6px 4px; }")
+
+        self._update_ui_font()
+
         self.setupSqlEdit()
         self.configureResultTableFont()
         self.updateResultLabel()
         self.update_page_text()
+
+    def _update_ui_font(self):
+
+        def _change_size(component: QWidget):
+            font = component.font()
+            font.setPointSize(int(settings.default_ui_font_size))
+            component.setFont(font)
+
+        _change_size(self.executeButton)
+        _change_size(self.tableInfoButton)
+        _change_size(self.resultLabel)
+        _change_size(self.firstButton)
+        _change_size(self.prevButton)
+        _change_size(self.pageLabel)
+        _change_size(self.nextButton)
+        _change_size(self.lastButton)
 
     def _current_page_row_offset(self) -> int:
         page_index = max(self.page - 1, 0)
