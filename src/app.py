@@ -114,6 +114,7 @@ def is_multi_window_mode() -> bool:
 class ParquetSQLApp(QMainWindow):
     open_windows: ClassVar[List["ParquetSQLApp"]] = []
     RESULT_TABLE_ROW_HEIGHT: ClassVar[int] = 25
+    MAX_COLUMN_WIDTH: ClassVar[int] = 600
 
     @classmethod
     def _open_window_count(cls) -> int:
@@ -383,6 +384,12 @@ class ParquetSQLApp(QMainWindow):
                 max(1, int(settings.default_result_font_size) - 2)
             )
 
+    def _limit_max_column_widths(self):
+        for idx in range(self.resultTable.columnCount()):
+            width = self.resultTable.columnWidth(idx)
+            if width > self.MAX_COLUMN_WIDTH:
+                self.resultTable.setColumnWidth(idx, self.MAX_COLUMN_WIDTH)
+
     def _restore_column_widths(self) -> bool:
         """Apply persisted column widths for the current file, if any."""
         if not self.file_path or not self._column_names:
@@ -395,6 +402,7 @@ class ParquetSQLApp(QMainWindow):
             column_name = self._column_names[idx]
             width = saved_widths.get(column_name)
             if isinstance(width, int) and width > 0:
+                width = min(width, self.MAX_COLUMN_WIDTH)
                 self.resultTable.setColumnWidth(idx, width)
 
         return True
@@ -644,6 +652,7 @@ class ParquetSQLApp(QMainWindow):
             return
 
         self.resultTable.resizeColumnsToContents()
+        self._limit_max_column_widths()
         self._applyRowHeight()
         history.add_col_width(str(self.file_path), None)
 
@@ -1143,6 +1152,7 @@ class ParquetSQLApp(QMainWindow):
         self._is_applying_column_widths = True
         if not self._restore_column_widths():
             self.resultTable.resizeColumnsToContents()
+            self._limit_max_column_widths()
         self._is_applying_column_widths = False
 
     def update_page_text(self):
