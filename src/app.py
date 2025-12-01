@@ -1267,6 +1267,11 @@ class ParquetSQLApp(QMainWindow):
                     lambda: self.copyRowValues(row)
                 )
                 contextMenu.addAction(copy_row_values_action)
+                copy_row_values_action = QAction("Copy Whole Row as Dict", self)
+                copy_row_values_action.triggered.connect(
+                    lambda: self.copyRowValues(row, as_dict=True)
+                )
+                contextMenu.addAction(copy_row_values_action)
 
         contextMenu.exec_(self.resultTable.mapToGlobal(pos))
 
@@ -1309,8 +1314,13 @@ class ParquetSQLApp(QMainWindow):
         clipboard = QApplication.clipboard()
         clipboard.setText(str(values))
 
-    def copyRowValues(self, row):
-        values = self.df.iloc[row, :].tolist()
+    def copyRowValues(self, row: int, as_dict: bool = False):
+        if not as_dict:
+            values = self.df.iloc[row, :].tolist()
+        else:
+            values = json.dumps(
+                self.df.iloc[row, :].to_dict(), indent=4, ensure_ascii=False
+            )
         clipboard = QApplication.clipboard()
         clipboard.setText(str(values))
 
