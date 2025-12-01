@@ -16,7 +16,7 @@ This application allows you to execute SQL queries on Parquet files. Uses [DuckD
     -   Support SQL statement history
     -   Auto remember columns width
 
-![main](https://raw.githubusercontent.com/BradXiao/ParVuEx/02d17fb60499d81aaf61a2889f108e0216f526d2/docs/images/main.png)
+![main](https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/main.png)
 
 -   Add new hotkeys
 -   Support launcher
@@ -24,7 +24,7 @@ This application allows you to execute SQL queries on Parquet files. Uses [DuckD
     -   Support single/multi windows
 -   Add quick value counts
 
-![value counts](https://raw.githubusercontent.com/BradXiao/ParVuEx/02d17fb60499d81aaf61a2889f108e0216f526d2/docs/images/value_counts.png)
+![value counts](https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png)
 
 ## Features
 
