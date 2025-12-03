@@ -22,7 +22,9 @@ This application allows you to execute SQL queries on Parquet files. Uses [DuckD
 -   Support launcher
     -   Speedup startup time
     -   Support single/multi windows
--   Add quick value counts
+-   Quick statistics
+    -   Value counts
+    -   Quick row values
 
 ![value counts](https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png)
 
