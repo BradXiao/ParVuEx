@@ -217,7 +217,7 @@ class ParquetSQLApp(QMainWindow):
         is_secondary: bool = False,
     ):
         super().__init__()
-        self.base_title = "ParVuEx v1"
+        self.base_title = "ParVuEx v1.1.0"
         self.setWindowTitle(self.base_title)
         logo_path = get_resource_path("static/logo.jpg")
         if not logo_path.exists():
