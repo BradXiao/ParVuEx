@@ -4,6 +4,7 @@ from pathlib import Path
 from itertools import islice, tee
 from typing import Generator, Tuple
 
+from PyQt5.QtGui import QFontDatabase  
 import pandas as pd
 from loguru import logger
 
@@ -43,3 +44,11 @@ def copy_count_gen_items(generator) -> Tuple[Generator, int]:
     count = sum(1 for _ in gen_count)
     logger.debug(f"Count: {count}")
     return gen_copy, count
+
+
+
+def is_valid_font(family: str) -> bool:
+    db = QFontDatabase()
+    if family and family in db.families():
+        return True
+    return False

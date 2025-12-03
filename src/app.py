@@ -59,6 +59,7 @@ from components import (
     SQLHighlighter,
     Popup,
 )
+from utils import is_valid_font
 
 INSTANCE_MESSAGE_KEY = "file"
 
@@ -1904,6 +1905,13 @@ class ParquetSQLApp(QMainWindow):
                                 return
                             setattr(self.settings, field, normalized_mode)
                         else:
+                            if field.endswith("_font"):
+                                if is_valid_font(line_edit.text()) == False:
+                                    QMessageBox.critical(
+                                        self,
+                                        "Error",
+                                        f"Can't find font family: {line_edit.text()}",
+                                    )
                             setattr(
                                 self.settings,
                                 field,
