@@ -2,13 +2,25 @@ from typing import Any, Dict, List, Optional, Tuple
 from io import StringIO
 import math
 import sys
-
+from PyQt5.QtGui import QFont, QTextDocument
+import re
 import duckdb
 
 
 MAX_VALUE_COUNT_ROWS = 200
 MAX_VALUE_DISPLAY_CHARS = 80
-NONE_ROW_HIGHLIGHT_STYLE = "background-color:#ffecec;display:block"
+NONE_ROW_HIGHLIGHT_STYLE = "background-color:#fad2e1;display:block"
+
+TABLE_MARKDOWN_STYLESHEET = """
+table {
+    border-collapse: collapse;
+}
+th, td {
+    padding: 5px;
+}
+""".strip()
+
+ZEBRA_ODD_BG = "#f0efeb"
 
 
 def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
@@ -80,7 +92,7 @@ def _collect_value_counts(
     return normalized, total
 
 
-def _format_value_cell(value: Any) -> str:
+def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
     if value is None:
         return "None"
 
@@ -102,7 +114,7 @@ def _format_value_cell(value: Any) -> str:
     if not display:
         display = "(empty)"
 
-    if len(display) > MAX_VALUE_DISPLAY_CHARS:
+    if limit_max_chars and len(display) > MAX_VALUE_DISPLAY_CHARS:
         display = display[: MAX_VALUE_DISPLAY_CHARS - 3] + "..."
     return display
 
@@ -263,14 +275,21 @@ def render_column_value_counts(
         additional_lines.append("\n\n")
         additional_lines.append("<br/><br/><br/>")
         additional_lines.append("")
-        additional_lines.append("#### Order by value name (current view only)")
+        additional_lines.append(
+            "#### Order by value name (with values in current view)"
+        )
         additional_lines += ["| Value | Current view |", "| --- | ---: |"]
         order_values = sorted(
             combined_values, key=lambda val: val if isinstance(val, str) else "None"
         )
+        counter = 0
         for value in order_values:
             if value not in current_dict:
                 continue
+            counter += 1
+            if counter > max_rows:
+                truncated = True
+                break
             cells = [
                 _format_value_cell(value),
                 _format_count_cell_with_percentage(
@@ -280,4 +299,79 @@ def render_column_value_counts(
             highlighted_cells = _apply_none_row_highlight(value, cells)
             additional_lines.append("| " + " | ".join(highlighted_cells) + " |")
 
+        if truncated:
+            additional_lines.append("| " + " | ".join([f"skipped...", "-", "-"]) + " |")
+
     return header + "\n".join(lines) + notes_block + "\n".join(additional_lines)
+
+
+def render_row_values(
+    row_values: Dict[str, Any],
+) -> str:
+    title_line = f"### Values for selected row"
+    separator_line = "-" * 50
+
+    lines = [
+        title_line,
+        separator_line,
+        "",
+        "| Column | Value |",
+        "| --- | --- |",
+    ]
+
+    for column_name, value in row_values.items():
+        column_display = column_name.replace("|", "\\|").replace("\n", " ").strip()
+        cells = [
+            column_display,
+            _format_value_cell(value, limit_max_chars=False),
+        ]
+        highlighted_cells = _apply_none_row_highlight(value, cells)
+        lines.append("| " + " | ".join(highlighted_cells) + " |")
+
+    return "\n".join(lines)
+
+
+def _apply_zebra_striping(html: str) -> str:
+    """Add inline background color to odd-numbered table rows."""
+
+    def replace_tr(match: re.Match) -> str:
+        before_table = match.group(1)
+        table_content = match.group(2)
+        after_table = match.group(3)
+
+        row_idx = 0
+
+        def style_row(row_match: re.Match) -> str:
+            nonlocal row_idx
+            row_idx += 1
+            tag = row_match.group(0)
+            # Skip header rows (first row or rows with <th>)
+            if row_idx == 1:
+                return tag
+            # Odd data rows (row_idx 2, 4, 6... are actually rows 1, 3, 5... after header)
+            if row_idx % 2 == 0:
+                if 'style="' in tag:
+                    return tag.replace(
+                        'style="', f'style="background-color:{ZEBRA_ODD_BG};'
+                    )
+                return tag.replace(
+                    "<tr", f'<tr style="background-color:{ZEBRA_ODD_BG};"'
+                )
+            return tag
+
+        styled_content = re.sub(r"<tr[^>]*>", style_row, table_content)
+        return before_table + styled_content + after_table
+
+    return re.sub(r"(<table[^>]*>)(.*?)(</table>)", replace_tr, html, flags=re.DOTALL)
+
+
+def markdown_to_html_with_table_styles(markdown_text: str, table_font: QFont) -> str:
+    doc = QTextDocument()
+    doc.setDefaultFont(table_font)
+    doc.setMarkdown(markdown_text)
+    html = doc.toHtml()
+    html = _apply_zebra_striping(html)
+    style_block = f"<style>{TABLE_MARKDOWN_STYLESHEET}</style>"
+    if "<head>" in html:
+        return html.replace("<head>", f"<head>{style_block}", 1)
+    return f"{style_block}{html}"

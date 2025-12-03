@@ -26,7 +26,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QFormLayout,
     QDialog,
-    QTextBrowser,
     QSystemTrayIcon,
     QShortcut,
     QGraphicsOpacityEffect,
@@ -49,7 +48,12 @@ from PyQt5.QtCore import (
 )
 
 from schemas import settings, Settings, recents, history
-from gui_tools import render_df_info, render_column_value_counts
+from gui_tools import (
+    render_df_info,
+    render_column_value_counts,
+    render_row_values,
+    markdown_to_html_with_table_styles,
+)
 from core import Data
 from components import (
     get_resource_path,
@@ -58,6 +62,7 @@ from components import (
     AnimationWidget,
     SQLHighlighter,
     Popup,
+    SearchableTextBrowser,
 )
 from utils import is_valid_font
 
@@ -1021,7 +1026,7 @@ class ParquetSQLApp(QMainWindow):
 
         dialog = Popup(self, "Help/Info")
 
-        text_browser = QTextBrowser(dialog)
+        text_browser = SearchableTextBrowser(dialog)
         text_browser.setMarkdown(help_text)
         text_browser.setReadOnly(True)
 
@@ -1390,11 +1395,14 @@ class ParquetSQLApp(QMainWindow):
 
         if column >= 0:
             column_name = self._get_column_name(column)
-            value_counts = QAction("Value Counts", self)
+            value_counts = QAction("Show Value Counts", self)
             value_counts.triggered.connect(
                 lambda: self.showColumnValueCounts(column_name)
             )
             contextMenu.addAction(value_counts)
+            row_values = QAction("Show This Row", self)
+            row_values.triggered.connect(lambda: self.showRowValues(row))
+            contextMenu.addAction(row_values)
             contextMenu.addSeparator()
 
             # Create Copy Submenu
@@ -1438,12 +1446,46 @@ class ParquetSQLApp(QMainWindow):
             self._dialog.close()
 
         dialog = Popup(self, f"Value Counts for {column}")
-        text_browser = QTextBrowser(dialog)
+        text_browser = SearchableTextBrowser(dialog)
+        table_font = QFont(
+            settings.default_result_font, int(settings.default_result_font_size) + 1
+        )
+        styled_html = markdown_to_html_with_table_styles(table_info, table_font)
+        text_browser.setHtml(styled_html)
+        text_browser.setFont(table_font)
+        text_browser.setReadOnly(True)
+        text_browser.setOpenExternalLinks(True)
+
+        layout = QVBoxLayout()
+        layout.addWidget(text_browser)
+        dialog.setLayout(layout)
+        self._center_dialog_relative_to_window(dialog)
+
+        def _clear_dialog_reference(*_):
+            if self._dialog is dialog:
+                self._dialog = None
+
+        dialog.destroyed.connect(_clear_dialog_reference)
+        dialog.finished.connect(_clear_dialog_reference)
+
+        self._dialog = dialog
+        dialog.show()
+
+    def showRowValues(self, row: int):
+        dict_values = self.df.iloc[row, :].to_dict()
+        table_info = render_row_values(dict_values)
+
+        if self._dialog is not None:
+            self._dialog.close()
+
+        dialog = Popup(self, f"Values for Row {row}")
+        text_browser = SearchableTextBrowser(dialog)
         table_font = QFont(
             settings.default_result_font, int(settings.default_result_font_size)
         )
         text_browser.setFont(table_font)
-        text_browser.setMarkdown(table_info)
+        styled_html = markdown_to_html_with_table_styles(table_info, table_font)
+        text_browser.setHtml(styled_html)
         text_browser.setReadOnly(True)
         text_browser.setOpenExternalLinks(True)
 
@@ -1743,12 +1785,13 @@ class ParquetSQLApp(QMainWindow):
 
             dialog = Popup(self, "Table Info")
 
-            text_browser = QTextBrowser(dialog)
+            text_browser = SearchableTextBrowser(dialog)
             table_font = QFont(
                 settings.default_result_font, int(settings.default_result_font_size)
             )
             text_browser.setFont(table_font)
-            text_browser.setMarkdown(table_info)
+            styled_html = markdown_to_html_with_table_styles(table_info, table_font)
+            text_browser.setHtml(styled_html)
             text_browser.setReadOnly(True)
             text_browser.setOpenExternalLinks(True)
 
