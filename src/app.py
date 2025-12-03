@@ -293,13 +293,8 @@ class ParquetSQLApp(QMainWindow):
 
     def initUI(self):
         layout = QVBoxLayout()
-
-        # SQL Edit
-        # self.sqlLabel = QLabel(f'Data Query - AS {settings.render_vars(settings.default_data_var_name)}:')
-        # self.sqlLabel.setFont(QFont("Courier", 8))
-        # layout.addWidget(self.sqlLabel)
-
         self.sqlEdit = QTextEdit()
+        self.sqlEdit.setAcceptRichText(False)
         self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
         self.sqlEdit.setMaximumHeight(90)
         self._apply_sql_edit_styles()
@@ -1305,6 +1300,7 @@ class ParquetSQLApp(QMainWindow):
         self._restore_column_widths()
         self._collect_current_column_widths()
         self._is_applying_column_widths = False
+        self.highlighter.update_columns(self._column_names)
 
     def update_page_text(self):
         """set next / prev button text"""

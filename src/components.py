@@ -167,8 +167,38 @@ class SQLHighlighter(QSyntaxHighlighter):
             pattern = QRegExp(f"\\b{keyword}\\b", Qt.CaseInsensitive)
             self._highlighting_rules.append((pattern, keyword_format))
 
+        self._column_rules = []
+
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor("#5e503f"))
+        val_format = QTextCharFormat()
+        val_format.setForeground(QColor("#007f5f"))
+        self._predefined = [
+            (
+                QRegExp("\\b\\d+\\b", Qt.CaseInsensitive),
+                val_format,
+            ),
+            (
+                QRegExp("'[^']+'", Qt.CaseInsensitive),
+                string_format,
+            ),
+        ]
+
+    def update_columns(self, columns: list[str]):
+        keyword_format = QTextCharFormat()
+        keyword_format.setForeground(QColor("#00a5d6"))
+        keyword_format.setFontWeight(QFont.Bold)
+        self._column_rules = []
+        for column in columns:
+            pattern = QRegExp(f"\\b{column}\\b", Qt.CaseInsensitive)
+            self._column_rules.append((pattern, keyword_format))
+
+        self.rehighlight()
+
     def highlightBlock(self, text):
-        for pattern, format in self._highlighting_rules:
+        for pattern, format in (
+            self._highlighting_rules + self._column_rules + self._predefined
+        ):
             index = pattern.indexIn(text)
             while index >= 0:
                 length = pattern.matchedLength()
