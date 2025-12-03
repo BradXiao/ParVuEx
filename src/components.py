@@ -16,6 +16,8 @@ import pandas as pd
 from query_revisor import Revisor, BadQueryException
 from schemas import Settings
 from core import Data
+from PyQt5.QtWidgets import QDialog, QApplication
+from PyQt5.QtCore import QEvent
 
 if TYPE_CHECKING:
     from main import ParquetSQLApp
@@ -195,3 +197,24 @@ class DataLoaderThread(QThread):
             self.dataReady.emit(data)
         except Exception as exc:
             self.errorOccurred.emit(str(exc))
+
+
+class Popup(QDialog):
+    def __init__(self, parent_window: QWidget, title: str):
+        super().__init__(parent_window)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(False)
+        self.parent_window = parent_window
+
+    def event(self, event):
+        if event.type() == QEvent.WindowDeactivate:
+            app = QApplication.instance()
+            if (
+                app is not None
+                and app.applicationState() == Qt.ApplicationActive
+                and QApplication.activeWindow() is self.parent_window
+            ):
+                self.close()
+                return True
+        return super().event(event)

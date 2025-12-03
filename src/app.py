@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import Union, Optional, List, ClassVar, Dict, cast
 from pathlib import Path
 import json
+import sys
+import ctypes
 from PyQt5.QtWidgets import QMainWindow, QApplication
 
 from PyQt5.QtWidgets import QWidget, QMainWindow, QApplication
@@ -55,6 +57,7 @@ from components import (
     DataLoaderThread,
     AnimationWidget,
     SQLHighlighter,
+    Popup,
 )
 
 INSTANCE_MESSAGE_KEY = "file"
@@ -166,22 +169,25 @@ class ParquetSQLApp(QMainWindow):
         window.showNormal()
         window.raise_()
         window.activateWindow()
-
-        # Force the window to come to front on Windows
-        # current_flags = window.windowFlags()
-        # window.setWindowFlags(current_flags | Qt.WindowStaysOnTopHint)
-        # window.show()
-        # QTimer.singleShot(1000, lambda: cls._removeFocusStayOnTop(window, current_flags))
+        cls._force_foreground_window(window)
 
     @classmethod
-    def _removeFocusStayOnTop(
-        cls, window: "ParquetSQLApp", original_flags: Qt.WindowFlags
-    ):
-        """Helper to remove the WindowStaysOnTopHint flag from focused window"""
-        window.setWindowFlags(original_flags)
-        window.show()
-        window.raise_()
-        window.activateWindow()
+    def _force_foreground_window(cls, window: "ParquetSQLApp"):
+        """Force window to foreground using Windows API (no flashing)."""
+        if sys.platform != "win32":
+            return
+        hwnd = int(window.winId())
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        foreground_hwnd = user32.GetForegroundWindow()
+        foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+        current_thread = kernel32.GetCurrentThreadId()
+        if foreground_thread != current_thread:
+            user32.AttachThreadInput(current_thread, foreground_thread, True)
+        user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+        if foreground_thread != current_thread:
+            user32.AttachThreadInput(current_thread, foreground_thread, False)
 
     def __init__(
         self,
@@ -223,6 +229,8 @@ class ParquetSQLApp(QMainWindow):
         self._recent_actions: List[QAction] = []
         self._table_effect: Optional[QGraphicsOpacityEffect] = None
         self._force_close = False
+        self._dialog: Optional[QDialog] = None
+        self._app_event_filter_installed = False
         self.single_instance_server: Optional[QLocalServer] = None
         self.instance_lock: Optional[QLockFile] = None
         self.launch_minimized = launch_minimized
@@ -370,6 +378,11 @@ class ParquetSQLApp(QMainWindow):
         # Create menu bar
         self.createMenuBar()
         self.update_page_text()
+
+        app = QApplication.instance()
+        if app is not None and not self._app_event_filter_installed:
+            app.installEventFilter(self)
+            self._app_event_filter_installed = True
 
     def setupSqlEdit(self):
         # Set monospace font for consistency
@@ -962,8 +975,10 @@ class ParquetSQLApp(QMainWindow):
         with open(settings.static_dir / "help.md", "r", encoding="utf-8") as f:
             help_text = f.read()
 
-        dialog = QDialog(self, Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
-        dialog.setWindowTitle("Help/Info")
+        if self._dialog is not None:
+            self._dialog.close()
+
+        dialog = Popup(self, "Help/Info")
 
         text_browser = QTextBrowser(dialog)
         text_browser.setMarkdown(help_text)
@@ -973,10 +988,17 @@ class ParquetSQLApp(QMainWindow):
         layout.addWidget(text_browser)
         dialog.setLayout(layout)
 
-        # dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        dialog.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
         self._center_dialog_relative_to_window(dialog)
-        dialog.exec_()
+
+        def _clear_dialog_reference(*_):
+            if self._dialog is dialog:
+                self._dialog = None
+
+        dialog.destroyed.connect(_clear_dialog_reference)
+        dialog.finished.connect(_clear_dialog_reference)
+        self._dialog = dialog
+
+        dialog.show()
 
     def openFilePath(
         self,
@@ -1341,6 +1363,10 @@ class ParquetSQLApp(QMainWindow):
 
         contextMenu.exec_(self.resultTable.mapToGlobal(pos))
 
+    def _close_active_dialog(self):
+        if self._dialog is not None:
+            self._dialog.close()
+
     def showColumnValueCounts(self, column: str):
         table_info = render_column_value_counts(
             self.DATA.reader.duckdf_query,
@@ -1349,10 +1375,10 @@ class ParquetSQLApp(QMainWindow):
             max_rows=50,
         )
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Value Counts for {column}")
-        dialog.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        if self._dialog is not None:
+            self._dialog.close()
 
+        dialog = Popup(self, f"Value Counts for {column}")
         text_browser = QTextBrowser(dialog)
         table_font = QFont(
             settings.default_result_font, int(settings.default_result_font_size)
@@ -1366,7 +1392,16 @@ class ParquetSQLApp(QMainWindow):
         layout.addWidget(text_browser)
         dialog.setLayout(layout)
         self._center_dialog_relative_to_window(dialog)
-        dialog.exec_()
+
+        def _clear_dialog_reference(*_):
+            if self._dialog is dialog:
+                self._dialog = None
+
+        dialog.destroyed.connect(_clear_dialog_reference)
+        dialog.finished.connect(_clear_dialog_reference)
+
+        self._dialog = dialog
+        dialog.show()
 
     def copyColumnName(self, column):
         column_name = self._get_column_name(column)
@@ -1406,6 +1441,17 @@ class ParquetSQLApp(QMainWindow):
         return ""
 
     def eventFilter(self, obj, event):
+        dialog = self._dialog
+        if (
+            dialog is not None
+            and dialog.isVisible()
+            and event.type() == QEvent.MouseButtonPress
+            and isinstance(obj, QWidget)
+        ):
+            if obj is not dialog and not dialog.isAncestorOf(obj):
+                if obj is self or self.isAncestorOf(obj):
+                    self._close_active_dialog()
+
         table_viewport = (
             self.resultTable.viewport() if hasattr(self, "resultTable") else None
         )
@@ -1610,9 +1656,10 @@ class ParquetSQLApp(QMainWindow):
 
             table_info = render_df_info(self.DATA.reader.duckdf_query)
 
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Table Info")
-            dialog.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            if self._dialog is not None:
+                self._dialog.close()
+
+            dialog = Popup(self, "Table Info")
 
             text_browser = QTextBrowser(dialog)
             table_font = QFont(
@@ -1628,7 +1675,15 @@ class ParquetSQLApp(QMainWindow):
             dialog.setLayout(layout)
 
             self._center_dialog_relative_to_window(dialog)
-            dialog.exec_()
+
+            def _clear_dialog_reference(*_):
+                if self._dialog is dialog:
+                    self._dialog = None
+
+            dialog.destroyed.connect(_clear_dialog_reference)
+            dialog.finished.connect(_clear_dialog_reference)
+            self._dialog = dialog
+            dialog.show()
 
     def editSettings(self):
         settings_file = settings.usr_settings_file
