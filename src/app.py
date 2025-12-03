@@ -162,7 +162,7 @@ class ParquetSQLApp(QMainWindow):
         return None
 
     @classmethod
-    def focus_window(cls, window: "ParquetSQLApp"):
+    def focus_window(cls, window: "ParquetSQLApp", ask_reload: bool = False):
         """Bring the specified window to the front and activate it."""
         window.setWindowState(Qt.WindowNoState)
         window.show()
@@ -170,6 +170,18 @@ class ParquetSQLApp(QMainWindow):
         window.raise_()
         window.activateWindow()
         cls._force_foreground_window(window)
+        if ask_reload:
+            confirm = QMessageBox.question(
+                window,
+                "Reload",
+                "Do you want to reload the file?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if confirm != QMessageBox.Yes:
+                return
+            window.reloadAction.triggered.emit()
+            window.executeQuery(add_to_history=False)
 
     @classmethod
     def _force_foreground_window(cls, window: "ParquetSQLApp"):
@@ -272,6 +284,7 @@ class ParquetSQLApp(QMainWindow):
         ParquetSQLApp.open_windows.append(self)
         if self.file_path:
             self.openFilePath(self.file_path, add_to_recents=True)
+            self.executeQuery(add_to_history=False)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -678,7 +691,7 @@ class ParquetSQLApp(QMainWindow):
         if file_to_open:
             existing_window = ParquetSQLApp.find_window_by_file(file_to_open)
             if existing_window:
-                ParquetSQLApp.focus_window(existing_window)
+                ParquetSQLApp.focus_window(existing_window, ask_reload=True)
                 return
             first_window = (
                 ParquetSQLApp.open_windows[0] if ParquetSQLApp.open_windows else None
@@ -719,6 +732,7 @@ class ParquetSQLApp(QMainWindow):
         self._last_query_file = None
         self.updateWindowTitle()
         self.updateActionStates()
+        self._reset_history_navigation()
 
     def resetTableSize(self):
         if not self.file_path:
@@ -1005,6 +1019,7 @@ class ParquetSQLApp(QMainWindow):
         file_path: Union[str, Path],
         add_to_recents: bool = False,
         auto_execute: bool = True,
+        load_prev_history: bool = True,
     ) -> bool:
         path = Path(file_path)
         if not path.exists():
@@ -1028,15 +1043,23 @@ class ParquetSQLApp(QMainWindow):
         ):
             recents.add_recent(str(path))
             ParquetSQLApp.refresh_all_recents_menus()
+
+        history_loaded = False
+        if load_prev_history and self.executeButton.text() == "Execute":
+            history_loaded = self.showPreviousHistoryEntry()
+
         if auto_execute:
-            self.execute()
+            if not history_loaded:
+                self.execute()
+            else:
+                self.executeQuery(add_to_history=False)
 
         return True
 
     def reloadFile(self):
         if not self.file_path:
             return
-        self.openFilePath(self.file_path, add_to_recents=False)
+        self.openFilePath(self.file_path, add_to_recents=False, load_prev_history=False)
 
     def browseFile(self):
         options = QFileDialog.Options()
@@ -1050,10 +1073,10 @@ class ParquetSQLApp(QMainWindow):
         if fileName:
             existing_window = ParquetSQLApp.find_window_by_file(fileName)
             if existing_window:
-                ParquetSQLApp.focus_window(existing_window)
+                ParquetSQLApp.focus_window(existing_window, ask_reload=True)
                 return False
             self.openFilePath(fileName, add_to_recents=True, auto_execute=False)
-            self.viewAction.triggered.emit()
+            self.executeQuery(add_to_history=False)
 
     def openNewWindowInstance(self):
         if not is_multi_window_mode():
@@ -1085,9 +1108,10 @@ class ParquetSQLApp(QMainWindow):
         self.update_page_text()
         self._last_column_widths = None
 
-    def executeQuery(self):
+    def executeQuery(self, add_to_history: bool = True):
         query_text = self.sqlEdit.toPlainText()
-        self._add_query_to_history(query_text)
+        if add_to_history:
+            self._add_query_to_history(query_text)
         self.page = 1
         self.loadPage(query=query_text)
         self.update_page_text()
@@ -1931,6 +1955,6 @@ class ParquetSQLApp(QMainWindow):
         print(file_path)
         existing_window = ParquetSQLApp.find_window_by_file(file_path)
         if existing_window:
-            ParquetSQLApp.focus_window(existing_window)
+            ParquetSQLApp.focus_window(existing_window, ask_reload=True)
             return False
         self.openFilePath(file_path)
