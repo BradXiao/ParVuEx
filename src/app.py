@@ -144,6 +144,8 @@ class ParquetSQLApp(QMainWindow):
     open_windows: ClassVar[List["ParquetSQLApp"]] = []
     RESULT_TABLE_ROW_HEIGHT: ClassVar[int] = 25
     MAX_COLUMN_WIDTH: ClassVar[int] = 600
+    SQL_EDIT_CLEAN_BORDER: ClassVar[str] = "1px solid black"
+    SQL_EDIT_DIRTY_BORDER: ClassVar[str] = "3px dotted #c1121f"
 
     @classmethod
     def _open_window_count(cls) -> int:
@@ -231,8 +233,10 @@ class ParquetSQLApp(QMainWindow):
         self._column_names: List[str] = []
         self._last_query: Optional[str] = None
         self._last_query_file: Optional[Path] = None
+        self._queried: str | None = None
         self._history_index: Optional[int] = None
         self._history_snapshot: Optional[str] = None
+        self._sql_edit_dirty: bool = False
         self.trayIcon: Optional[QSystemTrayIcon] = None
         self._hinted_tray_icon: bool = False
         self.newWindowAction: Optional[QAction] = None
@@ -265,17 +269,17 @@ class ParquetSQLApp(QMainWindow):
 
         if self.launch_minimized and self.trayIcon:
             screen = QApplication.desktop().screenGeometry()
-            window_width = int(screen.width() * 0.6)
-            window_height = int(screen.height() * 0.6)
+            window_width = int(screen.width() * 0.8)
+            window_height = int(screen.height() * 0.8)
             x = (screen.width() - window_width) // 2
             y = (screen.height() - window_height) // 2
             self.setGeometry(x, y, window_width, window_height)
             QTimer.singleShot(0, self.minimizeOnLaunch)
         else:
-            # Set window size to 60% of screen dimensions and center it
+            # Set window size to 80% of screen dimensions and center it
             screen = QApplication.desktop().screenGeometry()
-            window_width = int(screen.width() * 0.6)
-            window_height = int(screen.height() * 0.6)
+            window_width = int(screen.width() * 0.8)
+            window_height = int(screen.height() * 0.8)
             x = (screen.width() - window_width) // 2
             y = (screen.height() - window_height) // 2
             self.setGeometry(x, y, window_width, window_height)
@@ -296,8 +300,8 @@ class ParquetSQLApp(QMainWindow):
 
         self.sqlEdit = QTextEdit()
         self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
-        self.sqlEdit.setMaximumHeight(80)
-        self.sqlEdit.setStyleSheet(f"background-color: {settings.colour_sqlEdit}")
+        self.sqlEdit.setMaximumHeight(90)
+        self._apply_sql_edit_styles()
         self.sqlEdit.installEventFilter(self)
         editorLayout = QHBoxLayout()
         editorLayout.addWidget(self.sqlEdit)
@@ -306,16 +310,22 @@ class ParquetSQLApp(QMainWindow):
         controlLayout.setSpacing(8)
 
         self.executeButton = QPushButton("Execute")
-        self.executeButton.setFixedSize(110, 32)
+        self.executeButton.setFixedSize(120, 25)
         self.executeButton.setStyleSheet(
             f"background-color: {settings.colour_executeButton}"
         )
         self.executeButton.clicked.connect(self.executeQuery)
         controlLayout.addWidget(self.executeButton)
 
+        self.clearButton = QPushButton("Default SQL")
+        self.clearButton.setFixedSize(120, 25)
+        self.clearButton.setStyleSheet(f"background-color: #bc4749; color: white;")
+        self.clearButton.clicked.connect(self.clearQuery)
+        controlLayout.addWidget(self.clearButton)
+
         # meta info
         self.tableInfoButton = QPushButton("Table Info")
-        self.tableInfoButton.setFixedSize(110, 32)
+        self.tableInfoButton.setFixedSize(120, 25)
         self.tableInfoButton.setStyleSheet(
             f"background-color: {settings.colour_tableInfoButton}"
         )
@@ -406,6 +416,26 @@ class ParquetSQLApp(QMainWindow):
 
         # Apply syntax highlighting
         self.highlighter = SQLHighlighter(self.sqlEdit.document(), settings)
+
+    def _apply_sql_edit_styles(self):
+        """Configure SQL editor colours and border state."""
+        if not hasattr(self, "sqlEdit"):
+            return
+        background_colour = settings.colour_sqlEdit
+        border_style = (
+            self.SQL_EDIT_DIRTY_BORDER
+            if self._sql_edit_dirty
+            else self.SQL_EDIT_CLEAN_BORDER
+        )
+        self.sqlEdit.setStyleSheet(
+            f"background-color: {background_colour}; border: {border_style};"
+        )
+
+    def _mark_sql_edit_dirty(self, dirty: bool):
+        if self._sql_edit_dirty == dirty:
+            return
+        self._sql_edit_dirty = dirty
+        self._apply_sql_edit_styles()
 
     def configureResultTableFont(self):
         table_font = self.resultTable.font()
@@ -508,7 +538,7 @@ class ParquetSQLApp(QMainWindow):
         self.rows_per_page = int(
             settings.render_vars(settings.result_pagination_rows_per_page)
         )
-        self.sqlEdit.setStyleSheet(f"background-color: {settings.colour_sqlEdit}")
+        self._apply_sql_edit_styles()
         self.executeButton.setStyleSheet(
             f"background-color: {settings.colour_executeButton}"
         )
@@ -537,6 +567,7 @@ class ParquetSQLApp(QMainWindow):
             component.setFont(font)
 
         _change_size(self.executeButton)
+        _change_size(self.clearButton)
         _change_size(self.tableInfoButton)
         _change_size(self.resultLabel)
         _change_size(self.firstButton)
@@ -1108,14 +1139,21 @@ class ParquetSQLApp(QMainWindow):
         self.update_page_text()
         self._last_column_widths = None
 
+    def clearQuery(self):
+        self.sqlEdit.clear()
+        self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
+        self._reset_history_navigation()
+        self.executeQuery(add_to_history=False)
+
     def executeQuery(self, add_to_history: bool = True):
         query_text = self.sqlEdit.toPlainText()
+        self._mark_sql_edit_dirty(False)
         if add_to_history:
             self._add_query_to_history(query_text)
         self.page = 1
         self.loadPage(query=query_text)
         self.update_page_text()
-        self._last_column_widths = None
+        self._queried = query_text
 
     def startLoadingAnimation(self):
         if self.loading:
@@ -1545,10 +1583,24 @@ class ParquetSQLApp(QMainWindow):
                 self.executeQuery()
                 return True
 
-            if self._history_index is not None and self._key_changes_text(event):
-                self._reset_history_navigation()
+            self._handle_edit_check()
 
         return super().eventFilter(obj, event)
+
+    def _handle_edit_check(self, handle_history: bool = True):
+        def delayed_handle_edit_check():
+            if self._queried is None:
+                return
+            text_changed = self._queried.strip() != self.sqlEdit.toPlainText().strip()
+            if handle_history and self._history_index is not None and text_changed:
+                self._reset_history_navigation()
+
+            if text_changed:
+                self._mark_sql_edit_dirty(True)
+            else:
+                self._mark_sql_edit_dirty(False)
+
+        QTimer.singleShot(50, delayed_handle_edit_check)
 
     def _add_query_to_history(self, query_text: str):
         q = query_text.strip()
@@ -1616,9 +1668,13 @@ class ParquetSQLApp(QMainWindow):
             self._history_index = 0
         elif self._history_index + 1 < len(history.queries[str(self.file_path)]):
             self._history_index += 1
-        entry = history.queries[str(self.file_path)][self._history_index]
+        entries = history.queries[str(self.file_path)]
+        entry = entries[self._history_index]
         self._apply_history_entry(entry)
-        self.executeButton.setText(f"Execute (-{self._history_index + 1})")
+        self.executeButton.setText(
+            f"Execute (-{self._history_index + 1}/{len(entries)})"
+        )
+        self._handle_edit_check(handle_history=False)
         return True
 
     def showNextHistoryEntry(self) -> bool:
@@ -1632,15 +1688,20 @@ class ParquetSQLApp(QMainWindow):
         assert self._history_index is not None
         if self._history_index > 0:
             self._history_index -= 1
-            entry = history.queries[str(self.file_path)][self._history_index]
+            entries = history.queries[str(self.file_path)]
+            entry = entries[self._history_index]
             self._apply_history_entry(entry)
-            self.executeButton.setText(f"Execute (-{self._history_index + 1})")
+            self.executeButton.setText(
+                f"Execute (-{self._history_index + 1}/{len(entries)})"
+            )
+            self._handle_edit_check(handle_history=False)
             return True
 
         if self._history_snapshot is not None:
             snapshot = self._history_snapshot
             self._reset_history_navigation()
             self._apply_history_entry(snapshot)
+            self._handle_edit_check()
             return True
 
         return False
@@ -1792,7 +1853,7 @@ class ParquetSQLApp(QMainWindow):
 
                     line_edit = QLineEdit()
                     # line_edit.setPlaceholderText(str(value))
-                    line_edit.setText(str(value))
+                    line_edit.setText(str(value).replace("\n", "\\n"))
                     self.fields[field] = line_edit
                     layout.addRow(QLabel(field), line_edit)
 
@@ -1843,7 +1904,11 @@ class ParquetSQLApp(QMainWindow):
                                 return
                             setattr(self.settings, field, normalized_mode)
                         else:
-                            setattr(self.settings, field, line_edit.text())
+                            setattr(
+                                self.settings,
+                                field,
+                                line_edit.text().replace("\\n", "\n"),
+                            )
 
                 self.settings.save_settings()
                 self.accept()

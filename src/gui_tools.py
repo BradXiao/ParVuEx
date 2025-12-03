@@ -35,14 +35,16 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
             row = [item.strip() for item in row]
             data.append(row)
 
-        # Build the markdown table
-        markdown_table = "| " + " | ".join(headers) + " |\n"
-        markdown_table += (
-            "|-" + "-|-".join(["-" * len(header) for header in headers]) + "-|\n"
-        )
-        markdown_table += "| " + " | ".join(types) + " |\n"
-        for row in data:
-            markdown_table += "| " + " | ".join(row) + " |\n"
+        stat_names = [row[0] for row in data]
+
+        markdown_table = "| Column | Type | " + " | ".join(stat_names) + " |\n"
+        markdown_table += "|-" + "-|-".join(["-"] * (len(stat_names) + 2)) + "-|\n"
+
+        for col_idx in range(1, len(headers)):
+            row_values = [headers[col_idx], types[col_idx]]
+            for row in data:
+                row_values.append(row[col_idx] if col_idx < len(row) else "")
+            markdown_table += "| " + " | ".join(row_values) + " |\n"
 
         return h + markdown_table
 
@@ -209,7 +211,7 @@ def render_column_value_counts(
         truncated = True
 
     notes: List[str] = []
-    lines = ["", "#### Order by counts", ""]
+    lines = ["<br/><br/><br/>", "#### Order by counts", ""]
     lines += ["| Value | Current view | All |", "| --- | ---: | ---: |"]
     for value in value_order:
         cells = [
@@ -227,8 +229,9 @@ def render_column_value_counts(
         )
 
     lines.append("")
-    lines.append("#### Order by value name")
+    lines.append("<br/><br/><br/>")
     lines.append("")
+    lines.append("#### Order by value name")
     lines += ["| Value | Current view | All |", "| --- | ---: | ---: |"]
     order_values = sorted(
         combined_values, key=lambda val: val if isinstance(val, str) else "None"
@@ -253,7 +256,28 @@ def render_column_value_counts(
 
     if all_error:
         notes.append(all_error)
-
     notes_block = ("\n\n\n" + "\n".join(notes) + "") if notes else ""
+    # `` show all lines
+    additional_lines = []
+    if truncated:
+        additional_lines.append("\n\n")
+        additional_lines.append("<br/><br/><br/>")
+        additional_lines.append("")
+        additional_lines.append("#### Order by value name (current view only)")
+        additional_lines += ["| Value | Current view |", "| --- | ---: |"]
+        order_values = sorted(
+            combined_values, key=lambda val: val if isinstance(val, str) else "None"
+        )
+        for value in order_values:
+            if value not in current_dict:
+                continue
+            cells = [
+                _format_value_cell(value),
+                _format_count_cell_with_percentage(
+                    current_dict.get(value), current_total
+                ),
+            ]
+            highlighted_cells = _apply_none_row_highlight(value, cells)
+            additional_lines.append("| " + " | ".join(highlighted_cells) + " |")
 
-    return header + "\n".join(lines) + notes_block
+    return header + "\n".join(lines) + notes_block + "\n".join(additional_lines)
