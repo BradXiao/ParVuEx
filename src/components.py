@@ -1,7 +1,7 @@
 import sys
-from typing import Union, Optional, TYPE_CHECKING
+from typing import Union, Optional, TYPE_CHECKING, List
 from pathlib import Path
-from PyQt5.QtWidgets import QLabel, QWidget
+from PyQt5.QtWidgets import QLabel, QWidget, QTextBrowser, QFrame
 from PyQt5.QtGui import (
     QColor,
     QFont,
@@ -10,12 +10,16 @@ from PyQt5.QtGui import (
     QResizeEvent,
     QSyntaxHighlighter,
     QTextCharFormat,
+    QKeyEvent,
+    QTextCursor,
 )
-from PyQt5.QtCore import QRegExp, QSize, QThread, Qt, pyqtSignal
+from PyQt5.QtCore import QRegExp, QSize, QThread, Qt, pyqtSignal, QTimer
 import pandas as pd
 from query_revisor import Revisor, BadQueryException
 from schemas import Settings
 from core import Data
+from PyQt5.QtWidgets import QDialog, QApplication
+from PyQt5.QtCore import QEvent
 
 if TYPE_CHECKING:
     from main import ParquetSQLApp
@@ -165,8 +169,38 @@ class SQLHighlighter(QSyntaxHighlighter):
             pattern = QRegExp(f"\\b{keyword}\\b", Qt.CaseInsensitive)
             self._highlighting_rules.append((pattern, keyword_format))
 
+        self._column_rules = []
+
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor("#5e503f"))
+        val_format = QTextCharFormat()
+        val_format.setForeground(QColor("#007f5f"))
+        self._predefined = [
+            (
+                QRegExp("\\b\\d+\\b", Qt.CaseInsensitive),
+                val_format,
+            ),
+            (
+                QRegExp("'[^']+'", Qt.CaseInsensitive),
+                string_format,
+            ),
+        ]
+
+    def update_columns(self, columns: list[str]):
+        keyword_format = QTextCharFormat()
+        keyword_format.setForeground(QColor("#00a5d6"))
+        keyword_format.setFontWeight(QFont.Bold)
+        self._column_rules = []
+        for column in columns:
+            pattern = QRegExp(f"\\b{column}\\b", Qt.CaseInsensitive)
+            self._column_rules.append((pattern, keyword_format))
+
+        self.rehighlight()
+
     def highlightBlock(self, text):
-        for pattern, format in self._highlighting_rules:
+        for pattern, format in (
+            self._highlighting_rules + self._column_rules + self._predefined
+        ):
             index = pattern.indexIn(text)
             while index >= 0:
                 length = pattern.matchedLength()
@@ -195,3 +229,215 @@ class DataLoaderThread(QThread):
             self.dataReady.emit(data)
         except Exception as exc:
             self.errorOccurred.emit(str(exc))
+
+
+class Popup(QDialog):
+    def __init__(self, parent_window: QWidget, title: str):
+        super().__init__(parent_window)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(False)
+        self.parent_window = parent_window
+
+    def event(self, event):
+        if event.type() == QEvent.WindowDeactivate:
+            app = QApplication.instance()
+            if (
+                app is not None
+                and app.applicationState() == Qt.ApplicationActive
+                and QApplication.activeWindow() is self.parent_window
+            ):
+                self.close()
+                return True
+        return super().event(event)
+
+
+class SearchIndicator(QFrame):
+    """Floating search indicator showing search term and match count."""
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setObjectName("SearchIndicator")
+        self.setStyleSheet(
+            """
+            #SearchIndicator {
+                background-color: #2d2d30;
+                border: 1px solid #007acc;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+        """
+        )
+        self._label = QLabel(self)
+        self._label.setStyleSheet(
+            """
+            QLabel {
+                color: #e0e0e0;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 12px;
+                background: transparent;
+                border: none;
+            }
+        """
+        )
+        self.hide()
+
+    def update_text(self, search_term: str, count: int):
+        if not search_term:
+            self.hide()
+            return
+        text = f'"{search_term}" ({count})'
+        self._label.setText(text)
+        self._label.adjustSize()
+        # Add padding
+        self.setFixedSize(self._label.width() + 16, self._label.height() + 8)
+        self._label.move(8, 4)
+        self._reposition()
+        self.show()
+        self.raise_()
+
+    def _reposition(self):
+        """Position in top-right corner of parent."""
+        if self.parent():
+            parent = self.parent()
+            x = parent.width() - self.width() - 30
+            y = 10
+            self.move(x, y)
+
+
+class SearchableTextBrowser(QTextBrowser):
+    """QTextBrowser with incremental search-as-you-type highlighting."""
+
+    HIGHLIGHT_BG = QColor("#ffea00")  # Yellow highlight
+    HIGHLIGHT_FG = QColor("#000000")  # Black text
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._search_term = ""
+        self._match_positions: List[tuple] = []  # [(start, length), ...]
+        self._indicator = SearchIndicator(self)
+        self._clear_timer = QTimer(self)
+        self._clear_timer.setSingleShot(True)
+        self._clear_timer.timeout.connect(self._clear_search)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.parent_window = parent
+
+    def resizeEvent(self, event: QResizeEvent):
+        super().resizeEvent(event)
+        if self._indicator.isVisible():
+            self._indicator._reposition()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        key = event.key()
+        text = event.text()
+
+        # Reset clear timer on any relevant key
+        self._clear_timer.stop()
+
+        # Handle Escape - clear search
+        if key == Qt.Key_Escape:
+            if self._search_term == "":
+                self.parent_window.close()
+            self._clear_search()
+            return
+
+        # Handle Backspace - remove last character from search
+        if key == Qt.Key_Backspace:
+            if self._search_term:
+                self._search_term = self._search_term[:-1]
+                self._update_highlights()
+                # if self._search_term:
+                #     self._clear_timer.start(3000)  # Auto-clear after 3s idle
+            return
+
+        # Handle printable characters - add to search term
+        if text and text.isprintable() and not event.modifiers() & Qt.ControlModifier:
+            self._search_term += text
+            self._update_highlights()
+            # self._clear_timer.start(3000)  # Auto-clear after 3s idle
+            return
+
+        # For navigation keys, pass to parent but keep search active
+        if key in (
+            Qt.Key_Up,
+            Qt.Key_Down,
+            Qt.Key_Left,
+            Qt.Key_Right,
+            Qt.Key_PageUp,
+            Qt.Key_PageDown,
+            Qt.Key_Home,
+            Qt.Key_End,
+        ):
+            super().keyPressEvent(event)
+            # if self._search_term:
+            #     self._clear_timer.start(3000)
+            return
+
+        # Let other keys pass through
+        super().keyPressEvent(event)
+
+    def _update_highlights(self):
+        """Find all matches and highlight them."""
+        self._match_positions.clear()
+        extra_selections = []
+
+        if not self._search_term:
+            self.setExtraSelections([])
+            self._indicator.update_text("", 0)
+            return
+
+        # Get plain text content for searching
+        document = self.document()
+        content = document.toPlainText()
+        search_lower = self._search_term.lower()
+        content_lower = content.lower()
+
+        # Find all occurrences (case-insensitive)
+        pos = 0
+        while True:
+            idx = content_lower.find(search_lower, pos)
+            if idx == -1:
+                break
+            self._match_positions.append((idx, len(self._search_term)))
+            pos = idx + 1
+
+        # Create extra selections for highlights
+        fmt = QTextCharFormat()
+        fmt.setBackground(self.HIGHLIGHT_BG)
+        fmt.setForeground(self.HIGHLIGHT_FG)
+
+        for start, length in self._match_positions:
+            cursor = self.textCursor()
+            cursor.setPosition(start)
+            cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, length)
+            selection = QTextBrowser.ExtraSelection()
+            selection.cursor = cursor
+            selection.format = fmt
+            extra_selections.append(selection)
+
+        self.setExtraSelections(extra_selections)
+        self._indicator.update_text(self._search_term, len(self._match_positions))
+
+        # Scroll to first match if any
+        if self._match_positions:
+            cursor = self.textCursor()
+            cursor.setPosition(self._match_positions[0][0])
+            self.setTextCursor(cursor)
+            self.ensureCursorVisible()
+
+    def _clear_search(self):
+        """Clear search term and highlights."""
+        self._search_term = ""
+        self._match_positions.clear()
+        self.setExtraSelections([])
+        self._indicator.hide()
+
+    def setHtml(self, text: str):
+        """Override to clear search on content change."""
+        self._clear_search()
+        super().setHtml(text)
+
+    def setMarkdown(self, text: str):
+        """Override to clear search on content change."""
+        self._clear_search()
+        super().setMarkdown(text)

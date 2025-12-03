@@ -41,6 +41,7 @@ class Settings(BaseModel):
     default_result_font: str
     default_sql_query: str
     default_sql_font: str
+    default_ui_font_size: Union[int, str]
     sql_keywords: list[str]
     result_pagination_rows_per_page: str
     save_file_history: str
@@ -87,6 +88,7 @@ class Settings(BaseModel):
         query = query.replace(
             "$(default_result_font_size)", str(self.default_result_font_size)
         )
+        query = query.replace("$(default_ui_font_size)", str(self.default_ui_font_size))
         query = query.replace("$(default_sql_query)", str(self.default_sql_query))
         query = query.replace("$(default_sql_font)", str(self.default_sql_font))
         query = query.replace("$(default_result_font)", str(self.default_result_font))
