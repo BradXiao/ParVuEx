@@ -175,6 +175,12 @@ class SQLHighlighter(QSyntaxHighlighter):
         string_format.setForeground(QColor("#5e503f"))
         val_format = QTextCharFormat()
         val_format.setForeground(QColor("#007f5f"))
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor("#919090"))
+        comment_format.setFontItalic(True)
+        multiline_comment_format = QTextCharFormat()
+        multiline_comment_format.setForeground(QColor("#919090"))
+        multiline_comment_format.setFontItalic(True)
         self._predefined = [
             (
                 QRegExp("\\b\\d+\\b", Qt.CaseInsensitive),
@@ -183,6 +189,14 @@ class SQLHighlighter(QSyntaxHighlighter):
             (
                 QRegExp("'[^']+'", Qt.CaseInsensitive),
                 string_format,
+            ),
+            (
+                QRegExp("--.*", Qt.CaseInsensitive),
+                comment_format,
+            ),
+            (
+                QRegExp("/\\*.*\\*/", Qt.CaseInsensitive),
+                multiline_comment_format,
             ),
         ]
 
