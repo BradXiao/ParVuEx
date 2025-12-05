@@ -1097,9 +1097,9 @@ class ParquetSQLApp(QMainWindow):
         options = QFileDialog.Options()
         fileName, _ = QFileDialog.getOpenFileName(
             self,
-            "Open Parquet File",
+            "Open File",
             "",
-            "Parquet Files (*.parquet);;All Files (*)",
+            "Data Files (*.parquet *.csv);;All Files (*)",
             options=options,
         )
         if fileName:
@@ -1107,6 +1107,7 @@ class ParquetSQLApp(QMainWindow):
             if existing_window:
                 ParquetSQLApp.focus_window(existing_window, ask_reload=True)
                 return False
+            self.closeFile()
             self.openFilePath(fileName, add_to_recents=True, auto_execute=False)
             self.executeQuery(add_to_history=False)
 
