@@ -1146,6 +1146,7 @@ class ParquetSQLApp(QMainWindow):
         self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
         self._reset_history_navigation()
         self.executeQuery(add_to_history=False)
+        self._last_column_widths = None
 
     def executeQuery(self, add_to_history: bool = True):
         query_text = self.sqlEdit.toPlainText()
@@ -1156,6 +1157,7 @@ class ParquetSQLApp(QMainWindow):
         self.loadPage(query=query_text)
         self.update_page_text()
         self._queried = query_text
+        self._last_column_widths = None
 
     def startLoadingAnimation(self):
         if self.loading:
