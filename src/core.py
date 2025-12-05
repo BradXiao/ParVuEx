@@ -1,16 +1,15 @@
 from pathlib import Path
-from typing import Optional, Union, List, Callable
+from typing import Union, List, Iterator, Optional
+import math
 import chardet
 import os
 
 import pandas as pd
 import duckdb
-import pyarrow.parquet as pq
 import pyarrow as pa
 import pyarrow.types as patypes
 from loguru import logger
 
-from utils import read_table, nth_from_generator, copy_count_gen_items
 from schemas import settings
 
 
@@ -77,36 +76,40 @@ class Reader:
         self.duckdf = self.__read_into_duckdf()  # .sort("__index_level_0__")
         # for querying
         self.duckdf_query = self.duckdf
-        self.batches: List[pa.RecordBatch] = self._relation_to_batches()
         self.total_rows: int = 0
         self.columns_query = list(self.duckdf_query.columns)
         self.columns = list(self.duckdf.columns)
-        self._update_row_metadata()
+        self.update_batches()
 
         logger.debug(f"Reader initialized with columns: {self.columns}")
 
-    def _relation_to_batches(self) -> List[pa.RecordBatch]:
-        """Convert current DuckDB relation into uniform-sized Arrow batches."""
-        table = self.duckdf_query.to_arrow_table()
-        if hasattr(table, "combine_chunks"):
-            table = table.combine_chunks()
-        return table.to_batches(self.batchsize)
-
     def update_batches(self):
-        """updates self.batches using self.duckdf_query"""
-        logger.debug("Updating batches")
-        self.batches = self._relation_to_batches()
+        """Refresh cached metadata for the current relation."""
+        logger.debug("Refreshing relation metadata")
         self._update_column_metadata()
         self._update_row_metadata()
 
     def _update_row_metadata(self):
-        self.total_rows = sum(batch.num_rows for batch in self.batches)
+        try:
+            count_relation = self.duckdf_query.aggregate("COUNT(*) AS total_rows")
+            count_df = count_relation.to_df()
+            if not count_df.empty:
+                self.total_rows = int(count_df.iloc[0, 0])
+            else:
+                self.total_rows = 0
+        except Exception as exc:
+            logger.warning(f"Failed to count rows: {exc}")
+            self.total_rows = 0
 
     def _update_column_metadata(self):
         try:
             self.columns_query = list(self.duckdf_query.columns)
         except Exception:
             self.columns_query = list(self.columns)
+
+    def _empty_dataframe(self) -> pd.DataFrame:
+        """Create an empty DataFrame that preserves column ordering."""
+        return pd.DataFrame(columns=pd.Index(self.columns_query))
 
     def __read_into_duckdf(self) -> duckdb.DuckDBPyRelation:
         path_str = str(self.path)
@@ -186,10 +189,22 @@ class Reader:
         ), "Path must be a valid Parquet, CSV or JSON file"
         logger.info(f"Validated path: {self.path}")
 
-    def get_generator(self, chunksize: int) -> List[pa.RecordBatch]:
-        """returns a list of pyarrow batches"""
-        logger.debug(f"Getting generator with chunksize: {chunksize}")
-        return self.duckdf_query.to_arrow_table().to_batches(chunksize)
+    def get_generator(self, chunksize: int) -> Iterator[pa.RecordBatch]:
+        """Yield pyarrow RecordBatches without materializing the full dataset."""
+        logger.debug(f"Streaming generator with chunksize: {chunksize}")
+        offset = 0
+        while True:
+            relation = self.duckdf_query.limit(chunksize, offset)
+            table = relation.to_arrow_table()
+            if hasattr(table, "combine_chunks"):
+                table = table.combine_chunks()
+            if table.num_rows == 0:
+                break
+            for batch in table.to_batches(max_chunksize=chunksize):
+                yield batch
+            if table.num_rows < chunksize:
+                break
+            offset += chunksize
 
     def get_total_rows(self) -> int:
         return self.total_rows
@@ -198,12 +213,19 @@ class Reader:
         logger.debug(
             f"Getting {n}th batch with chunksize: {self.batchsize} as_df: {as_df}"
         )
-        pa_batch = nth_from_generator(self.batches, n - 1)
-        if pa_batch is None:
-            return pd.DataFrame(columns=self.columns_query) if as_df else None
+        if n < 1:
+            return self._empty_dataframe() if as_df else None
+        offset = (n - 1) * self.batchsize
+        relation = self.duckdf_query.limit(self.batchsize, offset)
+        table = relation.to_arrow_table()
+        if hasattr(table, "combine_chunks"):
+            table = table.combine_chunks()
+        if table.num_rows == 0:
+            return self._empty_dataframe() if as_df else None
         if not as_df:
-            return pa_batch
-        return pa_batch.to_pandas(types_mapper=_pyarrow_types_mapper)
+            batches = table.to_batches(max_chunksize=self.batchsize)
+            return batches[0] if batches else None
+        return table.to_pandas(types_mapper=_pyarrow_types_mapper)
 
     def search(
         self, search_query: str, column: str, as_df: bool = False, case: bool = False
@@ -241,12 +263,11 @@ class Reader:
         duck_res = self.duckdf.query(
             virtual_table_name=self.virtual_table_name, sql_query=query
         )
-        # update duckdf_query and batches
-        logger.debug(f"Updating duckdf_query with query result")
+        # update duckdf_query and metadata
+        logger.debug("Updating duckdf_query with query result")
         self.duckdf_query = duck_res
-        self._update_column_metadata()
         self.update_batches()
-        return duck_res.to_pandas() if as_df else duck_res
+        return duck_res.to_df() if as_df else duck_res
 
     def agg_get_uniques(self, column_name: str) -> List[str]:
         """get unique values for given column"""
@@ -278,8 +299,8 @@ class Data:
         )
 
         self.ftype = "pq" if self.path.suffix == ".parquet" else "txt"
-        # for big data bunch counting can be slow, so do if manually called by `calc_n_batches`
-        self.total_batches = "???"
+        # total_batches calculated on demand to avoid full materialization
+        self.total_batches: Union[int, str] = "???"
         self.columns = self.reader.columns.copy()
 
         logger.info(
@@ -296,10 +317,16 @@ class Data:
             f"Getting {n}th batch with chunksize: {self.reader.batchsize} as_df: {as_df}"
         )
         batch = self.reader.get_nth_batch(n, as_df)
-        logger.debug(f"Items in batch: {len(batch)}")
+        if isinstance(batch, pd.DataFrame):
+            batch_len = len(batch)
+        elif isinstance(batch, pa.RecordBatch):
+            batch_len = batch.num_rows
+        else:
+            batch_len = 0
+        logger.debug(f"Items in batch: {batch_len}")
         return batch
 
-    def get_generator(self, chunksize: int) -> List[pa.RecordBatch]:
+    def get_generator(self, chunksize: int) -> Iterator[pa.RecordBatch]:
         logger.debug(f"Getting generator with chunksize: {chunksize}")
         return self.reader.get_generator(chunksize)
 
@@ -310,23 +337,14 @@ class Data:
 
     def execute_query(
         self, query: str, as_df: bool = False
-    ) -> Union[List[pa.RecordBatch], pd.DataFrame]:
+    ) -> Union[duckdb.DuckDBPyRelation, pd.DataFrame]:
         """executes provided query and update duckdf_query"""
-        max_chunksize = self.reader.batchsize
-        logger.info(f"Executing query: '{query}' with max_chunksize: {max_chunksize}")
-        if not as_df:
-            relation = self.reader.query(query, as_df)
-            table = relation.to_arrow_table()
-            if hasattr(table, "combine_chunks"):
-                table = table.combine_chunks()
-            batches = table.to_batches(max_chunksize=max_chunksize)
-            # update total_pages:
-            self.total_batches = len(batches)
-            return batches
-        else:
-            res = self.reader.query(query, as_df)
-            self.total_batches = self.calc_n_batches()
-            return res
+        logger.info(
+            f"Executing query: '{query}' with page size: {self.reader.batchsize}"
+        )
+        result = self.reader.query(query, as_df)
+        self.total_batches = self.calc_n_batches()
+        return result
 
     def search(
         self, query: str, column: str, as_df: bool = True, case: bool = False
@@ -337,12 +355,18 @@ class Data:
         return self.reader.search(query, column, as_df, case)
 
     def calc_n_batches(self) -> int:
-        """calculates the number of batches in data. Use carefully, because it can take time for big data"""
-        chunksize = self.reader.batchsize
-        logger.debug(f"Calculating number of batches with chunksize: {chunksize}")
-        # gen, n = copy_count_gen_items(self.reader.batches)
-        logger.debug(f"Number of batches: {len(self.reader.batches)}")
-        return len(self.reader.batches)
+        """Calculate how many batches exist for the current relation."""
+        chunksize = max(1, self.reader.batchsize)
+        total_rows = self.reader.get_total_rows()
+        logger.debug(
+            f"Calculating number of batches with chunksize: {chunksize}, total_rows: {total_rows}"
+        )
+        if total_rows == 0:
+            self.total_batches = 0
+            return 0
+        batches = math.ceil(total_rows / chunksize)
+        self.total_batches = batches
+        return batches
 
     def calc_total_rows(self) -> int:
         return self.reader.get_total_rows()
