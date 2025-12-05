@@ -5,6 +5,7 @@ import sys
 from PyQt5.QtGui import QFont, QTextDocument
 import re
 import duckdb
+import json
 
 
 MAX_VALUE_COUNT_ROWS = 200
@@ -92,7 +93,9 @@ def _collect_value_counts(
     return normalized, total
 
 
-def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
+def _format_value_cell(
+    value: Any, limit_max_chars: bool = True, json_format: bool = False
+) -> str:
     if value is None:
         return "None"
 
@@ -110,7 +113,17 @@ def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
     else:
         display = str(value)
 
+    if json_format and (display.startswith("{") or display.startswith("[")):
+        try:
+            display = json.dumps(json.loads(display), indent="\t", ensure_ascii=False)
+            display = display.replace("\n", "%%BR%%")
+            display = display.replace("\t", "%%TAB%%")
+            display = f"<div>{display}</div>"
+        except:
+            pass
+
     display = display.replace("|", "\\|").replace("\n", " ").strip()
+
     if not display:
         display = "(empty)"
 
@@ -323,7 +336,11 @@ def render_row_values(
         column_display = column_name.replace("|", "\\|").replace("\n", " ").strip()
         cells = [
             column_display,
-            _format_value_cell(value, limit_max_chars=False),
+            _format_value_cell(
+                value,
+                limit_max_chars=False,
+                json_format=False if isinstance(value, str) == False else True,
+            ),
         ]
         highlighted_cells = _apply_none_row_highlight(value, cells)
         lines.append("| " + " | ".join(highlighted_cells) + " |")
@@ -370,6 +387,8 @@ def markdown_to_html_with_table_styles(markdown_text: str, table_font: QFont) ->
     doc.setDefaultFont(table_font)
     doc.setMarkdown(markdown_text)
     html = doc.toHtml()
+    html = html.replace("%%BR%%", "<br>")
+    html = html.replace("%%TAB%%", "&nbsp;&nbsp;&nbsp;&nbsp;")
     html = _apply_zebra_striping(html)
     style_block = f"<style>{TABLE_MARKDOWN_STYLESHEET}</style>"
     if "<head>" in html:
