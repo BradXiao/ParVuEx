@@ -78,6 +78,7 @@ exe = EXE(
     exclude_binaries=False,
     name="ParVuEx",
     debug=False,
+    icon="src/static/logo.ico",
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
