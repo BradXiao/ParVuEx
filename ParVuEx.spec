@@ -20,7 +20,7 @@ a = Analysis(
         ("src/settings/default_settings.json", "./settings/"),
         ("src/history/recents.json", "./history/"),
     ],
-    hiddenimports=["pydantic", "loguru", "duckdb", "pandas"],
+    hiddenimports=["pydantic", "loguru", "duckdb", "pandas", "chardet"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
