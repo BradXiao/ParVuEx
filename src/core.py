@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Optional, Union, List, Callable
+import chardet
+import os
 
 import pandas as pd
 import duckdb
@@ -64,6 +66,7 @@ class Reader:
         self.path = path
         self.virtual_table_name = virtual_table_name
         self.batchsize = batchsize
+        self._tmp_csv_path: Optional[Path] = None
 
         logger.info(
             f"Initializing Reader with path: {path} and virtual_table_name: {virtual_table_name}"
@@ -111,11 +114,69 @@ class Reader:
         if self.path.suffix.lower() == ".parquet":
             return duckdb.read_parquet(path_str)
         elif self.path.suffix.lower() == ".csv":
-            return duckdb.read_csv(path_str)
+            # clear any previous temp file from earlier reads
+            self._cleanup_tmp_csv()
+            try:
+                return duckdb.read_csv(path_str, encoding="UTF8")
+            except Exception as exc:
+                logger.warning(f"duckdb.read_csv UTF-8 failed: {exc}")
+
+            # guess encoding type
+            encoding = self._detect_encoding()
+            try:
+                # convert text from that encoding to utf-8 to a tmp file
+                with open(path_str, "r", encoding=encoding, errors="replace") as src:
+                    tmp_file = self.path.with_suffix(".tmp.csv")
+                    if tmp_file.exists():
+                        os.remove(tmp_file)
+                    with open(tmp_file, "w", encoding="UTF8") as tmp:
+                        for chunk in iter(lambda: src.read(8192), ""):
+                            tmp.write(chunk)
+                        self._tmp_csv_path = tmp_file
+                logger.info(
+                    f"Retrying CSV read after converting from {encoding} to UTF-8"
+                )
+                # read tmp file with duckdb
+                return duckdb.read_csv(str(self._tmp_csv_path), encoding="UTF8")
+            except Exception as inner_exc:
+                logger.error(
+                    f"Failed to read CSV after encoding conversion ({encoding} -> UTF-8): {inner_exc}"
+                )
+
+            raise ValueError("Failed to read CSV file with any supported encoding")
         elif self.path.suffix.lower() == ".json":
             return duckdb.read_json(path_str)
         else:
             raise ValueError(f"File extension {self.path.suffix} is not supported")
+
+    def __del__(self):
+        self._cleanup_tmp_csv()
+
+    def _detect_encoding(self) -> str:
+        """
+        Best-effort CSV encoding detection.
+        Uses chardet when available, otherwise falls back to cp1252 (common on Windows).
+        """
+
+        try:
+            with open(self.path, "rb") as buffer:
+                sample = buffer.read(8192)
+            result = chardet.detect(sample) or {}
+            return result.get("encoding") or "cp1252"
+        except Exception as exc:
+            logger.warning(f"Encoding detection failed, defaulting to cp1252: {exc}")
+            return "cp1252"
+
+    def _cleanup_tmp_csv(self):
+        """Remove any temporary CSV created during encoding conversion."""
+        if self._tmp_csv_path and self._tmp_csv_path.exists():
+            try:
+                self._tmp_csv_path.unlink()
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to remove temp CSV '{self._tmp_csv_path}': {exc}"
+                )
+        self._tmp_csv_path = None
 
     def validate(self):
         assert (
