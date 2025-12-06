@@ -41,8 +41,8 @@ if __name__ == "__main__":
         server.close()
 
     ex = ParquetSQLApp(file_path, enable_tray=True if not file_path else False)
-    ex.attachInstanceLock(instance_lock)
+    ex.attach_instance_lock(instance_lock)
     if instance_server and instance_server.isListening():
-        ex.attachInstanceServer(instance_server)
+        ex.attach_instance_server(instance_server)
     ex.show()
     sys.exit(app.exec_())

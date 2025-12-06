@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from io import StringIO
 import math
 import sys
@@ -42,7 +42,7 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
         types = lines[2].strip("│").split("│")
         types = [t.strip() for t in types]
         data_lines = lines[4:-1]
-        data = []
+        data: list[list[str]] = []
         for line in data_lines:
             row = line.strip("│").split("│")
             row = [item.strip() for item in row]
@@ -61,7 +61,7 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
 
         return h + markdown_table
 
-    except Exception as e:
+    except:
         return h + "\n" + descr
 
 
@@ -73,13 +73,13 @@ def _escape_identifier(identifier: str) -> str:
 def _collect_value_counts(
     relation: duckdb.DuckDBPyRelation,
     column: str,
-) -> Tuple[List[Tuple[Any, int]], int]:
+) -> tuple[list[tuple[Any, int]], int]:
     escaped_column = _escape_identifier(column)
     counts_relation = relation.aggregate(
         f"{escaped_column} AS value, COUNT(*) AS value_count GROUP BY 1"
     ).order("value_count DESC")
     rows = counts_relation.fetchall()
-    normalized: List[Tuple[Any, int]] = []
+    normalized: list[tuple[Any, int]] = []
     total = 0
     for raw_value, raw_count in rows:
         count = 0
@@ -132,7 +132,7 @@ def _format_value_cell(
     return display
 
 
-def _apply_none_row_highlight(value: Any, cells: List[str]) -> List[str]:
+def _apply_none_row_highlight(value: Any, cells: list[str]) -> list[str]:
     if value is None:
         return [
             f'<span style="{NONE_ROW_HIGHLIGHT_STYLE}">{cell}</span>' for cell in cells
@@ -140,24 +140,16 @@ def _apply_none_row_highlight(value: Any, cells: List[str]) -> List[str]:
     return cells
 
 
-def _format_count_cell(count: Optional[int]) -> str:
-    if count is None:
-        return ""
-    return f"{count:,}"
-
-
-def _format_count_cell_with_percentage(
-    count: Optional[int], total: Optional[int]
-) -> str:
+def _format_count_cell_with_percentage(count: int | None, total: int | None) -> str:
     if count is None or total is None:
         return ""
     return f"{count:,}  ({count/total:03.0%})"
 
 
 def render_column_value_counts(
-    current_view: Optional[duckdb.DuckDBPyRelation],
+    current_view: duckdb.DuckDBPyRelation | None,
     column: str,
-    full_view: Optional[duckdb.DuckDBPyRelation] = None,
+    full_view: duckdb.DuckDBPyRelation | None = None,
     max_rows: int = MAX_VALUE_COUNT_ROWS,
 ) -> str:
     title_line = f"### Value counts for `{column}`"
@@ -192,9 +184,9 @@ def render_column_value_counts(
             f"{exc}"
         )
 
-    all_counts: List[Tuple[Any, int]] = []
-    all_total: Optional[int] = None
-    all_error: Optional[str] = None
+    all_counts: list[tuple[Any, int]] = []
+    all_total: int | None = None
+    all_error: str | None = None
 
     if full_column_available:
         try:
@@ -212,8 +204,8 @@ def render_column_value_counts(
 
     header = f"{title_line}\n{' | '.join(summary_parts)}\n{separator_line}\n"
 
-    current_dict: Dict[Any, int] = {value: count for value, count in current_counts}
-    all_dict: Dict[Any, int] = {value: count for value, count in all_counts}
+    current_dict: dict[Any, int] = {value: count for value, count in current_counts}
+    all_dict: dict[Any, int] = {value: count for value, count in all_counts}
     combined_values = set(current_dict.keys()) | set(all_dict.keys())
 
     if not combined_values:
@@ -235,7 +227,7 @@ def render_column_value_counts(
         value_order = value_order[:max_rows]
         truncated = True
 
-    notes: List[str] = []
+    notes: list[str] = []
     lines = ["<br/><br/><br/>", "#### Order by counts", ""]
     lines += ["| Value | Current view | All |", "| --- | ---: | ---: |"]
     for value in value_order:
@@ -283,7 +275,7 @@ def render_column_value_counts(
         notes.append(all_error)
     notes_block = ("\n\n\n" + "\n".join(notes) + "") if notes else ""
     # `` show all lines
-    additional_lines = []
+    additional_lines: list[str] = []
     if truncated:
         additional_lines.append("\n\n")
         additional_lines.append("<br/><br/><br/>")
@@ -319,7 +311,7 @@ def render_column_value_counts(
 
 
 def render_row_values(
-    row_values: Dict[str, Any],
+    row_values: dict[str, Any],
 ) -> str:
     title_line = f"### Values for selected row"
     separator_line = "-" * 50
@@ -351,14 +343,14 @@ def render_row_values(
 def _apply_zebra_striping(html: str) -> str:
     """Add inline background color to odd-numbered table rows."""
 
-    def replace_tr(match: re.Match) -> str:
+    def replace_tr(match: re.Match[str]) -> str:
         before_table = match.group(1)
         table_content = match.group(2)
         after_table = match.group(3)
 
         row_idx = 0
 
-        def style_row(row_match: re.Match) -> str:
+        def style_row(row_match: re.Match[str]) -> str:
             nonlocal row_idx
             row_idx += 1
             tag = row_match.group(0)

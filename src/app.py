@@ -1,11 +1,9 @@
 from __future__ import annotations
-from typing import Union, Optional, List, ClassVar, Dict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from pathlib import Path
 import json
 import sys
 import ctypes
-from PyQt5.QtWidgets import QMainWindow, QApplication
-
 from PyQt5.QtWidgets import QWidget, QMainWindow, QApplication
 from PyQt5.QtCore import QLockFile
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
@@ -40,6 +38,8 @@ from PyQt5.QtGui import (
     QKeySequence,
     QTextCursor,
     QHelpEvent,
+    QWheelEvent,
+    QKeyEvent,
 )
 from PyQt5.QtCore import (
     Qt,
@@ -65,6 +65,10 @@ from components import (
     SearchableTextBrowser,
 )
 from utils import is_valid_font
+
+if TYPE_CHECKING:
+    from PyQt5.QtCore import QModelIndex, QPoint
+    from PyQt5.QtGui import QCloseEvent
 
 INSTANCE_MESSAGE_KEY = "file"
 
@@ -97,7 +101,7 @@ _SINGLE_MODE_TOKENS = {
 }
 
 
-def normalize_instance_mode_value(value: Optional[str]) -> str:
+def normalize_instance_mode_value(value: str | None) -> str:
     if value is None:
         return INSTANCE_MODE_SINGLE
     normalized = str(value).strip().lower()
@@ -127,13 +131,13 @@ class AutoWrapDelegate(QStyledItemDelegate):
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
         min_wrapped_lines: int = 2,
     ):
         super().__init__(parent)
         self.min_wrapped_lines = max(1, min_wrapped_lines)
 
-    def initStyleOption(self, option: QStyleOptionViewItem, index):
+    def initStyleOption(self, option: QStyleOptionViewItem, index: QModelIndex):
         super().initStyleOption(option, index)
         line_height = option.fontMetrics.lineSpacing()
         wrap_threshold = line_height * self.min_wrapped_lines
@@ -142,12 +146,12 @@ class AutoWrapDelegate(QStyledItemDelegate):
             option.features |= QStyleOptionViewItem.WrapText
             option.displayAlignment = Qt.AlignLeft | Qt.AlignVCenter
         else:
-            option.features &= ~QStyleOptionViewItem.WrapText
+            option.features &= ~QStyleOptionViewItem.WrapText  # type: ignore
             option.displayAlignment = Qt.AlignLeft | Qt.AlignVCenter
 
 
 class ParquetSQLApp(QMainWindow):
-    open_windows: ClassVar[List["ParquetSQLApp"]] = []
+    open_windows: ClassVar[list["ParquetSQLApp"]] = []
     RESULT_TABLE_ROW_HEIGHT: ClassVar[int] = 25
     MAX_COLUMN_WIDTH: ClassVar[int] = 600
     SQL_EDIT_CLEAN_BORDER: ClassVar[str] = "1px solid black"
@@ -161,7 +165,7 @@ class ParquetSQLApp(QMainWindow):
         return len(ParquetSQLApp.open_windows) <= 1
 
     @classmethod
-    def find_window_by_file(cls, file_path: str) -> Optional["ParquetSQLApp"]:
+    def find_window_by_file(cls, file_path: str) -> ParquetSQLApp | None:
         """Find an open window that has the specified file loaded."""
         target_path = Path(file_path).resolve()
         for window in cls.open_windows:
@@ -188,11 +192,11 @@ class ParquetSQLApp(QMainWindow):
             )
             if confirm != QMessageBox.Yes:
                 return
-            window.reloadAction.triggered.emit()
-            window.executeQuery(add_to_history=False)
+            window.reload_action.triggered.emit()
+            window.execute_query(add_to_history=False)
 
     @classmethod
-    def _force_foreground_window(cls, window: "ParquetSQLApp"):
+    def _force_foreground_window(cls, window: ParquetSQLApp):
         """Force window to foreground using Windows API (no flashing)."""
         if sys.platform != "win32":
             return
@@ -217,7 +221,7 @@ class ParquetSQLApp(QMainWindow):
         is_secondary: bool = False,
     ):
         super().__init__()
-        self.base_title = "ParVuEx v1.1.1"
+        self.base_title = "ParVuEx v1.2.0"
         self.setWindowTitle(self.base_title)
         logo_path = get_resource_path("static/logo.jpg")
         if not logo_path.exists():
@@ -226,35 +230,35 @@ class ParquetSQLApp(QMainWindow):
 
         self.page = 1
         self.total_pages = None
-        self.total_row_count: Optional[int] = None
+        self.total_row_count: int | None = None
         self.rows_per_page = int(
             settings.render_vars(settings.result_pagination_rows_per_page)
         )
         self.df = pd.DataFrame()
-        self.DATA: Optional[Data] = None
-        self.queryThread: Optional[QueryThread] = None
-        self.dataLoader: Optional[DataLoaderThread] = None
-        self.loading: Optional[AnimationWidget] = None
-        self.pending_query: Optional[str] = None
-        self._column_names: List[str] = []
-        self._last_query: Optional[str] = None
-        self._last_query_file: Optional[Path] = None
+        self.data: Data | None = None
+        self.query_thread: QueryThread | None = None
+        self.data_loader: DataLoaderThread | None = None
+        self.loading: AnimationWidget | None = None
+        self.pending_query: str | None = None
+        self._column_names: list[str] = []
+        self._last_query: str | None = None
+        self._last_query_file: Path | None = None
         self._queried: str | None = None
-        self._history_index: Optional[int] = None
-        self._history_snapshot: Optional[str] = None
+        self._history_index: int | None = None
+        self._history_snapshot: str | None = None
         self._sql_edit_dirty: bool = False
-        self.trayIcon: Optional[QSystemTrayIcon] = None
+        self.tray_icon: QSystemTrayIcon | None = None
         self._hinted_tray_icon: bool = False
-        self.newWindowAction: Optional[QAction] = None
-        self._new_window_separator: Optional[QAction] = None
-        self._recents_separator: Optional[QAction] = None
-        self._recent_actions: List[QAction] = []
-        self._table_effect: Optional[QGraphicsOpacityEffect] = None
+        self.new_window_action: QAction | None = None
+        self._new_window_separator: QAction | None = None
+        self._recents_separator: QAction | None = None
+        self._recent_actions: list[QAction] = []
+        self._table_effect: QGraphicsOpacityEffect | None = None
         self._force_close = False
-        self._dialog: Optional[QDialog] = None
+        self._dialog: QDialog | None = None
         self._app_event_filter_installed = False
-        self.single_instance_server: Optional[QLocalServer] = None
-        self.instance_lock: Optional[QLockFile] = None
+        self.single_instance_server: QLocalServer | None = None
+        self.instance_lock: QLockFile | None = None
         self.launch_minimized = launch_minimized
         self.enable_tray = enable_tray
         self._deleyed_column_saving = QTimer()
@@ -263,24 +267,24 @@ class ParquetSQLApp(QMainWindow):
         self._is_applying_column_widths = False
         self.is_secondary = is_secondary
         # use this variable to store opened files path
-        self.file_path: Optional[Path] = Path(file_path) if file_path else None
+        self.file_path: Path | None = Path(file_path) if file_path else None
         self._last_column_widths: list[tuple[str, int]] | None = None
 
-        self.initUI()
-        self.applySettingsToUi()
+        self.init_UI()
+        self.apply_settings_to_UI()
         if self.enable_tray:
-            self.initTrayIcon()
+            self.init_tray_icon()
 
-        self.updateWindowTitle()
+        self.update_window_title()
 
-        if self.launch_minimized and self.trayIcon:
+        if self.launch_minimized and self.tray_icon:
             screen = QApplication.desktop().screenGeometry()
             window_width = int(screen.width() * 0.8)
             window_height = int(screen.height() * 0.8)
             x = (screen.width() - window_width) // 2
             y = (screen.height() - window_height) // 2
             self.setGeometry(x, y, window_width, window_height)
-            QTimer.singleShot(0, self.minimizeOnLaunch)
+            QTimer.singleShot(0, self.minimize_on_launch)
         else:
             # Set window size to 80% of screen dimensions and center it
             screen = QApplication.desktop().screenGeometry()
@@ -293,101 +297,101 @@ class ParquetSQLApp(QMainWindow):
 
         ParquetSQLApp.open_windows.append(self)
         if self.file_path:
-            self.openFilePath(self.file_path, add_to_recents=True)
-            self.executeQuery(add_to_history=False)
+            self.open_file_path(self.file_path, add_to_recents=True)
+            self.execute_query(add_to_history=False)
 
-    def initUI(self):
+    def init_UI(self):
         layout = QVBoxLayout()
-        self.sqlEdit = QTextEdit()
-        self.sqlEdit.setAcceptRichText(False)
-        self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
-        self.sqlEdit.setMaximumHeight(90)
+        self.sql_edit = QTextEdit()
+        self.sql_edit.setAcceptRichText(False)
+        self.sql_edit.setPlainText(settings.render_vars(settings.default_sql_query))
+        self.sql_edit.setMaximumHeight(90)
         self._apply_sql_edit_styles()
-        self.sqlEdit.installEventFilter(self)
-        editorLayout = QHBoxLayout()
-        editorLayout.addWidget(self.sqlEdit)
+        self.sql_edit.installEventFilter(self)
+        editor_layout = QHBoxLayout()
+        editor_layout.addWidget(self.sql_edit)
 
-        controlLayout = QVBoxLayout()
-        controlLayout.setSpacing(8)
+        control_layout = QVBoxLayout()
+        control_layout.setSpacing(8)
 
-        self.executeButton = QPushButton("Execute")
-        self.executeButton.setFixedSize(120, 25)
-        self.executeButton.setStyleSheet(
+        self.execute_button = QPushButton("Execute")
+        self.execute_button.setFixedSize(120, 25)
+        self.execute_button.setStyleSheet(
             f"background-color: {settings.colour_executeButton}"
         )
-        self.executeButton.clicked.connect(self.executeQuery)
-        controlLayout.addWidget(self.executeButton)
+        self.execute_button.clicked.connect(self.execute_query)
+        control_layout.addWidget(self.execute_button)
 
-        self.clearButton = QPushButton("Default SQL")
-        self.clearButton.setFixedSize(120, 25)
-        self.clearButton.setStyleSheet(f"background-color: #bc4749; color: white;")
-        self.clearButton.clicked.connect(self.clearQuery)
-        controlLayout.addWidget(self.clearButton)
+        self.clear_button = QPushButton("Default SQL")
+        self.clear_button.setFixedSize(120, 25)
+        self.clear_button.setStyleSheet(f"background-color: #bc4749; color: white;")
+        self.clear_button.clicked.connect(self.clear_query)
+        control_layout.addWidget(self.clear_button)
 
         # meta info
-        self.tableInfoButton = QPushButton("Table Info")
-        self.tableInfoButton.setFixedSize(120, 25)
-        self.tableInfoButton.setStyleSheet(
+        self.table_info_button = QPushButton("Table Info")
+        self.table_info_button.setFixedSize(120, 25)
+        self.table_info_button.setStyleSheet(
             f"background-color: {settings.colour_tableInfoButton}"
         )
-        self.tableInfoButton.clicked.connect(self.toggleTableInfo)
-        controlLayout.addWidget(self.tableInfoButton)
-        controlLayout.addStretch()
+        self.table_info_button.clicked.connect(self.toggle_table_info)
+        control_layout.addWidget(self.table_info_button)
+        control_layout.addStretch()
 
-        editorLayout.addLayout(controlLayout)
-        layout.addLayout(editorLayout)
+        editor_layout.addLayout(control_layout)
+        layout.addLayout(editor_layout)
 
-        self.resultLabel = QLabel()
-        self.updateResultLabel()
-        layout.addWidget(self.resultLabel)
+        self.result_label = QLabel()
+        self.update_result_label()
+        layout.addWidget(self.result_label)
 
-        self.resultTable = QTableWidget()
-        self.resultTable.setStyleSheet(
+        self.result_table = QTableWidget()
+        self.result_table.setStyleSheet(
             f"background-color: {settings.colour_resultTable}"
         )
-        self.resultTable.setWordWrap(True)
-        self._wrap_delegate = AutoWrapDelegate(self.resultTable, min_wrapped_lines=2)
-        self.resultTable.setItemDelegate(self._wrap_delegate)
-        self.resultTable.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.resultTable.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.resultTable.installEventFilter(self)
-        self.resultTable.viewport().installEventFilter(self)
-        self.resultTable.customContextMenuRequested.connect(self.showContextMenu)
-        self.resultTable.currentCellChanged.connect(self.onCurrentRowChanged)
+        self.result_table.setWordWrap(True)
+        self._wrap_delegate = AutoWrapDelegate(self.result_table, min_wrapped_lines=2)
+        self.result_table.setItemDelegate(self._wrap_delegate)
+        self.result_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.result_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.result_table.installEventFilter(self)
+        self.result_table.viewport().installEventFilter(self)
+        self.result_table.customContextMenuRequested.connect(self.show_context_menu)
+        self.result_table.currentCellChanged.connect(self.on_current_row_changed)
         self._column_resize_connected = False
-        self.configureResultTableFont()
-        layout.addWidget(self.resultTable, stretch=1)
+        self.configure_result_table_font()
+        layout.addWidget(self.result_table, stretch=1)
 
         # pagination
-        self.paginationLayout = QHBoxLayout()
-        self.paginationLayout.setSpacing(8)
+        self.pagination_layout = QHBoxLayout()
+        self.pagination_layout.setSpacing(8)
 
-        self.firstButton = QPushButton("1")
-        self.firstButton.clicked.connect(self.firstPage)
-        self.paginationLayout.addWidget(self.firstButton)
+        self.first_button = QPushButton("1")
+        self.first_button.clicked.connect(self.first_page)
+        self.pagination_layout.addWidget(self.first_button)
 
-        self.prevButton = QPushButton("<")
-        self.prevButton.clicked.connect(self.prevPage)
-        self.paginationLayout.addWidget(self.prevButton)
+        self.prev_button = QPushButton("<")
+        self.prev_button.clicked.connect(self.prev_page)
+        self.pagination_layout.addWidget(self.prev_button)
 
-        self.pageLabel = QLabel()
-        self.pageLabel.setAlignment(Qt.AlignCenter)
-        self.paginationLayout.addWidget(self.pageLabel, stretch=1)
+        self.page_label = QLabel()
+        self.page_label.setAlignment(Qt.AlignCenter)
+        self.pagination_layout.addWidget(self.page_label, stretch=1)
 
-        self.nextButton = QPushButton(">")
-        self.nextButton.clicked.connect(self.nextPage)
-        self.paginationLayout.addWidget(self.nextButton)
+        self.next_button = QPushButton(">")
+        self.next_button.clicked.connect(self.next_page)
+        self.pagination_layout.addWidget(self.next_button)
 
-        self.lastButton = QPushButton("1")
-        self.lastButton.clicked.connect(self.lastPage)
-        self.paginationLayout.addWidget(self.lastButton)
+        self.last_button = QPushButton("1")
+        self.last_button.clicked.connect(self.last_page)
+        self.pagination_layout.addWidget(self.last_button)
 
-        layout.addLayout(self.paginationLayout)
+        layout.addLayout(self.pagination_layout)
 
-        self.nextPageShortcut = QShortcut(QKeySequence("Ctrl+Right"), self)
-        self.nextPageShortcut.activated.connect(self.nextPage)
-        self.prevPageShortcut = QShortcut(QKeySequence("Ctrl+Left"), self)
-        self.prevPageShortcut.activated.connect(self.prevPage)
+        self.next_page_shortcut = QShortcut(QKeySequence("Ctrl+Right"), self)
+        self.next_page_shortcut.activated.connect(self.next_page)
+        self.prev_page_shortcut = QShortcut(QKeySequence("Ctrl+Left"), self)
+        self.prev_page_shortcut.activated.connect(self.prev_page)
 
         layout.setStretch(0, 0)  # editor + controls
         layout.setStretch(1, 0)  # result label
@@ -400,7 +404,7 @@ class ParquetSQLApp(QMainWindow):
         self.setCentralWidget(central_widget)
 
         # Create menu bar
-        self.createMenuBar()
+        self.create_menu_bar()
         self.update_page_text()
 
         app = QApplication.instance()
@@ -408,19 +412,19 @@ class ParquetSQLApp(QMainWindow):
             app.installEventFilter(self)
             self._app_event_filter_installed = True
 
-    def setupSqlEdit(self):
+    def setup_sql_edit(self):
         # Set monospace font for consistency
-        font = self.sqlEdit.font()
+        font = self.sql_edit.font()
         font.setFamily(settings.default_sql_font)
         font.setPointSize(int(settings.default_sql_font_size))
-        self.sqlEdit.setFont(font)
+        self.sql_edit.setFont(font)
 
         # Apply syntax highlighting
-        self.highlighter = SQLHighlighter(self.sqlEdit.document(), settings)
+        self.highlighter = SQLHighlighter(self.sql_edit.document(), settings)
 
     def _apply_sql_edit_styles(self):
         """Configure SQL editor colours and border state."""
-        if not hasattr(self, "sqlEdit"):
+        if not hasattr(self, "sql_edit"):
             return
         background_colour = settings.colour_sqlEdit
         border_style = (
@@ -428,7 +432,7 @@ class ParquetSQLApp(QMainWindow):
             if self._sql_edit_dirty
             else self.SQL_EDIT_CLEAN_BORDER
         )
-        self.sqlEdit.setStyleSheet(
+        self.sql_edit.setStyleSheet(
             f"background-color: {background_colour}; border: {border_style};"
         )
 
@@ -438,19 +442,19 @@ class ParquetSQLApp(QMainWindow):
         self._sql_edit_dirty = dirty
         self._apply_sql_edit_styles()
 
-    def configureResultTableFont(self):
-        table_font = self.resultTable.font()
+    def configure_result_table_font(self):
+        table_font = self.result_table.font()
         table_font.setFamily(settings.default_result_font)
         table_font.setPointSize(int(settings.default_result_font_size))
-        self.resultTable.setFont(table_font)
+        self.result_table.setFont(table_font)
 
-        header = self.resultTable.horizontalHeader()
+        header = self.result_table.horizontalHeader()
         header_font = header.font()
         header_font.setFamily(settings.default_result_font)
         header_font.setPointSize(max(1, int(settings.default_result_font_size) - 1))
         header.setFont(header_font)
 
-        vertical_header = self.resultTable.verticalHeader()
+        vertical_header = self.result_table.verticalHeader()
         if vertical_header:
             vertical_font = vertical_header.font()
             vertical_font.setFamily(settings.default_result_font)
@@ -458,11 +462,11 @@ class ParquetSQLApp(QMainWindow):
                 max(1, int(settings.default_result_font_size) - 1)
             )
             vertical_header.setFont(vertical_font)
-            self._applyRowHeight()
+            self._apply_row_height()
 
-    def _applyRowHeight(self):
+    def _apply_row_height(self):
         """Ensure row height stays compact even after data refreshes."""
-        vertical_header = self.resultTable.verticalHeader()
+        vertical_header = self.result_table.verticalHeader()
         if vertical_header:
             vertical_header.setDefaultSectionSize(self.RESULT_TABLE_ROW_HEIGHT)
             vertical_header.setMinimumSectionSize(self.RESULT_TABLE_ROW_HEIGHT)
@@ -472,10 +476,10 @@ class ParquetSQLApp(QMainWindow):
             )
 
     def _limit_max_column_widths(self):
-        for idx in range(self.resultTable.columnCount()):
-            width = self.resultTable.columnWidth(idx)
+        for idx in range(self.result_table.columnCount()):
+            width = self.result_table.columnWidth(idx)
             if width > self.MAX_COLUMN_WIDTH:
-                self.resultTable.setColumnWidth(idx, self.MAX_COLUMN_WIDTH)
+                self.result_table.setColumnWidth(idx, self.MAX_COLUMN_WIDTH)
 
     def _restore_column_widths(self) -> bool:
         """Apply persisted column widths for the current file, if any."""
@@ -484,31 +488,31 @@ class ParquetSQLApp(QMainWindow):
         saved_widths = history.get_col_widths(str(self.file_path))
         if not saved_widths:
             return False
-        column_count = min(len(self._column_names), self.resultTable.columnCount())
+        column_count = min(len(self._column_names), self.result_table.columnCount())
         for idx in range(column_count):
             column_name = self._column_names[idx]
             width = saved_widths.get(column_name)
             if isinstance(width, int) and width > 0:
                 width = min(width, self.MAX_COLUMN_WIDTH)
-                self.resultTable.setColumnWidth(idx, width)
+                self.result_table.setColumnWidth(idx, width)
 
         return True
 
-    def _collect_current_column_widths(self) -> Dict[str, int]:
+    def _collect_current_column_widths(self) -> dict[str, int]:
         """Capture the current visible widths for all known columns."""
-        widths: Dict[str, int] = {}
-        if not self._column_names or not hasattr(self, "resultTable"):
+        widths: dict[str, int] = {}
+        if not self._column_names or not hasattr(self, "result_table"):
             return widths
-        column_count = min(len(self._column_names), self.resultTable.columnCount())
+        column_count = min(len(self._column_names), self.result_table.columnCount())
         if self._last_column_widths is None:
             self._last_column_widths = []
             for idx in range(column_count):
-                width = self.resultTable.columnWidth(idx)
+                width = self.result_table.columnWidth(idx)
                 self._last_column_widths.append((self._column_names[idx], width))
 
         for idx in range(column_count):
             last_name, last_width = self._last_column_widths[idx]
-            width = self.resultTable.columnWidth(idx)
+            width = self.result_table.columnWidth(idx)
             if (
                 width > 0
                 and last_name == self._column_names[idx]
@@ -534,58 +538,56 @@ class ParquetSQLApp(QMainWindow):
         history.add_col_width(str(self.file_path), current_widths)
         self._deleyed_column_saving.stop()
 
-    def applySettingsToUi(self):
+    def apply_settings_to_UI(self):
         """Re-apply dynamic settings such as fonts, colours, and pagination."""
         self.rows_per_page = int(
             settings.render_vars(settings.result_pagination_rows_per_page)
         )
         self._apply_sql_edit_styles()
-        self.executeButton.setStyleSheet(
+        self.execute_button.setStyleSheet(
             f"background-color: {settings.colour_executeButton}"
         )
-        self.tableInfoButton.setStyleSheet(
+        self.table_info_button.setStyleSheet(
             f"background-color: {settings.colour_tableInfoButton}"
         )
-        self.resultTable.setStyleSheet(
+        self.result_table.setStyleSheet(
             f"background-color: {settings.colour_resultTable}"
         )
-        header = self.resultTable.horizontalHeader()
+        header = self.result_table.horizontalHeader()
         if header:
             header.setStyleSheet("QHeaderView::section { padding: 6px 4px; }")
 
-        self._update_ui_font()
+        self._update_UI_font()
 
-        self.setupSqlEdit()
-        self.configureResultTableFont()
-        self.updateResultLabel()
+        self.setup_sql_edit()
+        self.configure_result_table_font()
+        self.update_result_label()
         self.update_page_text()
 
-    def _update_ui_font(self):
+    def _update_UI_font(self):
 
         def _change_size(component: QWidget):
             font = component.font()
             font.setPointSize(int(settings.default_ui_font_size))
             component.setFont(font)
 
-        _change_size(self.executeButton)
-        _change_size(self.clearButton)
-        _change_size(self.tableInfoButton)
-        _change_size(self.resultLabel)
-        _change_size(self.firstButton)
-        _change_size(self.prevButton)
-        _change_size(self.pageLabel)
-        _change_size(self.nextButton)
-        _change_size(self.lastButton)
+        _change_size(self.execute_button)
+        _change_size(self.clear_button)
+        _change_size(self.table_info_button)
+        _change_size(self.result_label)
+        _change_size(self.first_button)
+        _change_size(self.prev_button)
+        _change_size(self.page_label)
+        _change_size(self.next_button)
+        _change_size(self.last_button)
 
     def _current_page_row_offset(self) -> int:
         page_index = max(self.page - 1, 0)
         return page_index * self.rows_per_page
 
-    def updateResultLabel(
-        self, row: Optional[int] = None, column: Optional[int] = None
-    ):
-        page_rows = len(self.df.index) if isinstance(self.df, pd.DataFrame) else 0
-        total_cols = len(self.df.columns) if isinstance(self.df, pd.DataFrame) else 0
+    def update_result_label(self, row: int | None = None, column: int | None = None):
+        page_rows = len(self.df.index)
+        total_cols = len(self.df.columns)
         valid_row = row if isinstance(row, int) and row >= 0 else None
         valid_col = column if isinstance(column, int) and column >= 0 else None
         start_offset = self._current_page_row_offset()
@@ -597,35 +599,35 @@ class ParquetSQLApp(QMainWindow):
             visible_range = ""
 
         if self.total_row_count is not None:
-            total_rows_text = (
-                f"{self.total_row_count:,}"
-                if isinstance(self.total_row_count, int)
-                else "???"
-            )
+            total_rows_text = f"{self.total_row_count:,}"
             select_text = (
                 f"Select: {row_text}×{col_text}"
                 if (row_text + col_text).strip()
                 else ""
             )
-            self.resultLabel.setText(
+            self.result_label.setText(
                 f"Rows: {total_rows_text}   Page Rows: {str(page_rows)}    {visible_range}   Cols: {total_cols}   {select_text}"
             )
-            if hasattr(self, "lastButton"):
-                self.lastButton.setText(str(self.total_pages))
+            if hasattr(self, "last_button"):
+                self.last_button.setText(str(self.total_pages))
         else:
-            self.resultLabel.setText("No data loaded")
-            if hasattr(self, "lastButton"):
-                self.lastButton.setText("")
+            self.result_label.setText("No data loaded")
+            if hasattr(self, "last_button"):
+                self.last_button.setText("")
 
-    def onCurrentRowChanged(
-        self, currentRow, currentColumn, previousRow, previousColumn
+    def on_current_row_changed(
+        self,
+        current_row: int | None,
+        current_column: int | None,
+        previous_row: int | None,
+        previous_column: int | None,
     ):
-        if currentRow is not None and currentRow >= 0:
-            self.updateResultLabel(currentRow, currentColumn)
+        if current_row is not None and current_row >= 0:
+            self.update_result_label(current_row, current_column)
         else:
-            self.updateResultLabel()
+            self.update_result_label()
 
-    def updateWindowTitle(self):
+    def update_window_title(self):
         if self.file_path:
             self.setWindowTitle(
                 f"{self.base_title} ({self.file_path.name} @ {self.file_path.parent})"
@@ -633,72 +635,72 @@ class ParquetSQLApp(QMainWindow):
         else:
             self.setWindowTitle(self.base_title)
 
-    def updateActionStates(self):
+    def update_action_states(self):
         has_file = self.file_path is not None
         if hasattr(self, "viewAction"):
-            self.viewAction.setEnabled(has_file)
+            self.view_action.setEnabled(has_file)
         if hasattr(self, "closeFileAction"):
-            self.closeFileAction.setEnabled(has_file)
+            self.close_file_action.setEnabled(has_file)
         if hasattr(self, "exportAction"):
-            self.exportAction.setEnabled(has_file)
+            self.export_action.setEnabled(has_file)
         if hasattr(self, "resetTableSizeAction"):
-            self.resetTableSizeAction.setEnabled(has_file)
+            self.reset_table_size_action.setEnabled(has_file)
         if hasattr(self, "reloadAction"):
-            self.reloadAction.setEnabled(has_file)
-        self.updateInstanceActions()
+            self.reload_action.setEnabled(has_file)
+        self.update_instance_actions()
         if not has_file:
             self._last_column_widths = None
 
-    def updateInstanceActions(self):
+    def update_instance_actions(self):
         multi_mode = is_multi_window_mode()
-        if self.newWindowAction:
-            self.newWindowAction.setVisible(multi_mode)
-            self.newWindowAction.setEnabled(multi_mode)
+        if self.new_window_action:
+            self.new_window_action.setVisible(multi_mode)
+            self.new_window_action.setEnabled(multi_mode)
         if self._new_window_separator:
             self._new_window_separator.setVisible(multi_mode)
 
     @classmethod
     def refresh_all_instance_actions(cls):
         for window in list(cls.open_windows):
-            window.updateInstanceActions()
+            window.update_instance_actions()
 
     @classmethod
     def refresh_all_recents_menus(cls):
         for window in list(cls.open_windows):
-            if hasattr(window, "fileMenu"):
-                window.updateRecentsMenu()
+            if hasattr(window, "file_menu"):
+                window.update_recents_menu()
 
-    def attachInstanceServer(self, server: Optional[QLocalServer]):
+    def attach_instance_server(self, server: QLocalServer | None):
         """Register the local server used to communicate with secondary launches."""
         self.single_instance_server = server
         if server:
             server.setParent(self)
-            server.newConnection.connect(self._handleIncomingInstanceRequest)
+            server.newConnection.connect(self._handle_incoming_instance_request)
 
-    def attachInstanceLock(self, lock: Optional[QLockFile]):
+    def attach_instance_lock(self, lock: QLockFile | None):
         """Store the lock so it remains held until the primary instance quits."""
         self.instance_lock = lock
 
-    def _handleIncomingInstanceRequest(self):
+    def _handle_incoming_instance_request(self):
         if not self.single_instance_server:
             return
         socket = self.single_instance_server.nextPendingConnection()
         if not socket:
             return
-        socket.readyRead.connect(self._handleInstanceSocketData)
+        socket.readyRead.connect(self._handle_instance_socket_data)
 
-    def _handleInstanceSocketData(self):
+    def _handle_instance_socket_data(self):
         socket = self.sender()
         if not isinstance(socket, QLocalSocket):
             return
         data = bytes(socket.readAll()).decode("utf-8").strip()
         socket.disconnectFromServer()
         socket.deleteLater()
-        self._handleInstanceMessage(data)
+        self._handle_instance_message(data)
 
-    def _handleInstanceMessage(self, payload: str):
+    def _handle_instance_message(self, payload: str):
         multi_mode = is_multi_window_mode()
-        file_to_open: Optional[str] = None
+        file_to_open: str | None = None
         message = None
         if payload:
             try:
@@ -706,7 +708,7 @@ class ParquetSQLApp(QMainWindow):
             except json.JSONDecodeError:
                 message = None
         if isinstance(message, dict):
-            file_candidate = message.get(INSTANCE_MESSAGE_KEY)
+            file_candidate = cast(str | None, message.get(INSTANCE_MESSAGE_KEY))
             if isinstance(file_candidate, str):
                 file_candidate = file_candidate.strip()
             file_to_open = file_candidate or None
@@ -715,11 +717,11 @@ class ParquetSQLApp(QMainWindow):
             self._open_additional_window(file_to_open)
             return
 
-        self.restoreFromTray()
+        self.restore_from_tray()
         if file_to_open:
-            self.openFilePath(file_to_open, add_to_recents=True)
+            self.open_file_path(file_to_open, add_to_recents=True)
 
-    def _open_additional_window(self, file_to_open: Optional[str]):
+    def _open_additional_window(self, file_to_open: str | None):
         if file_to_open:
             existing_window = ParquetSQLApp.find_window_by_file(file_to_open)
             if existing_window:
@@ -729,55 +731,55 @@ class ParquetSQLApp(QMainWindow):
                 ParquetSQLApp.open_windows[0] if ParquetSQLApp.open_windows else None
             )
             if first_window and not first_window.file_path:
-                first_window.openFilePath(file_to_open, add_to_recents=True)
+                first_window.open_file_path(file_to_open, add_to_recents=True)
                 ParquetSQLApp.focus_window(first_window)
                 return
         new_window = ParquetSQLApp.spawn_additional_window(file_to_open)
         ParquetSQLApp.focus_window(new_window)
 
     @classmethod
-    def spawn_additional_window(cls, file_to_open: Optional[str]):
+    def spawn_additional_window(cls, file_to_open: str | None):
         window = cls(
             file_path=None, enable_tray=False, launch_minimized=False, is_secondary=True
         )
         if file_to_open:
-            window.openFilePath(file_to_open, add_to_recents=True)
+            window.open_file_path(file_to_open, add_to_recents=True)
         return window
 
-    def _closeInstanceServer(self):
+    def _close_instance_server(self):
         if self.single_instance_server:
             self.single_instance_server.close()
             self.single_instance_server.deleteLater()
             self.single_instance_server = None
 
-    def _releaseInstanceLock(self):
+    def _release_instance_lock(self):
         if self.instance_lock:
             self.instance_lock.unlock()
             self.instance_lock = None
 
-    def closeFile(self):
+    def close_file(self):
         if not self.file_path:
             return
-        self.releaseResources()
+        self.release_resources()
         self.file_path = None
         self._last_query = None
         self._last_query_file = None
-        self.updateWindowTitle()
-        self.updateActionStates()
+        self.update_window_title()
+        self.update_action_states()
         self._reset_history_navigation()
 
-    def resetTableSize(self):
+    def reset_table_size(self):
         if not self.file_path:
             return
-        if not hasattr(self, "resultTable") or self.resultTable.columnCount() == 0:
+        if not hasattr(self, "resultTable") or self.result_table.columnCount() == 0:
             return
 
-        self.resultTable.resizeColumnsToContents()
+        self.result_table.resizeColumnsToContents()
         self._limit_max_column_widths()
-        self._applyRowHeight()
+        self._apply_row_height()
         history.add_col_width(str(self.file_path), None)
 
-    def exitApplication(self):
+    def exit_application(self):
         confirm = QMessageBox.question(
             self,
             "Exit ParVuEx",
@@ -789,63 +791,64 @@ class ParquetSQLApp(QMainWindow):
             return
 
         self._force_close = True
-        self.releaseResources()
-        self._closeInstanceServer()
-        self._releaseInstanceLock()
-        QApplication.instance().quit()
+        self.release_resources()
+        self._close_instance_server()
+        self._release_instance_lock()
+        if app := QApplication.instance():
+            app.quit()
 
-    def createMenuBar(self):
+    def create_menu_bar(self):
         menubar = self.menuBar()
         # app menu
-        sysMenu = menubar.addMenu("App")
-        self.newWindowAction = QAction("New Window", self)
-        self.newWindowAction.triggered.connect(self.openNewWindowInstance)
-        sysMenu.addAction(self.newWindowAction)
-        self._new_window_separator = sysMenu.addSeparator()
-        settingsAction = QAction("Settings", self)
-        settingsAction.triggered.connect(self.editSettings)
-        sysMenu.addAction(settingsAction)
+        sys_menu = menubar.addMenu("App")
+        self.new_window_action = QAction("New Window", self)
+        self.new_window_action.triggered.connect(self.open_new_window_instance)
+        sys_menu.addAction(self.new_window_action)
+        self._new_window_separator = sys_menu.addSeparator()
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.edit_settings)
+        sys_menu.addAction(settings_action)
         # quit app
-        sysMenu.addSeparator()
-        exitMenuAction = QAction("Quit App", self)
-        exitMenuAction.triggered.connect(self.exitApplication)
-        sysMenu.addAction(exitMenuAction)
+        sys_menu.addSeparator()
+        exit_menu_action = QAction("Quit App", self)
+        exit_menu_action.triggered.connect(self.exit_application)
+        sys_menu.addAction(exit_menu_action)
 
         # file menu
-        self.fileMenu = menubar.addMenu("File")
-        browseAction = QAction("Open...", self)
-        browseAction.triggered.connect(self.browseFile)
-        self.fileMenu.addAction(browseAction)
-        self.reloadAction = QAction("Reload", self)
-        self.reloadAction.triggered.connect(self.reloadFile)
-        self.fileMenu.addAction(self.reloadAction)
-        self.closeFileAction = QAction("Close", self)
-        self.closeFileAction.triggered.connect(self.closeFile)
-        self.fileMenu.addAction(self.closeFileAction)
-        self.fileMenu.addSeparator()
-        self.exportAction = QAction("Export...", self)
-        self.exportAction.triggered.connect(self.exportResults)
-        self.fileMenu.addAction(self.exportAction)
-        self.updateRecentsMenu()
+        self.file_menu = menubar.addMenu("File")
+        browse_action = QAction("Open...", self)
+        browse_action.triggered.connect(self.browse_file)
+        self.file_menu.addAction(browse_action)
+        self.reload_action = QAction("Reload", self)
+        self.reload_action.triggered.connect(self.reload_file)
+        self.file_menu.addAction(self.reload_action)
+        self.close_file_action = QAction("Close", self)
+        self.close_file_action.triggered.connect(self.close_file)
+        self.file_menu.addAction(self.close_file_action)
+        self.file_menu.addSeparator()
+        self.export_action = QAction("Export...", self)
+        self.export_action.triggered.connect(self.export_results)
+        self.file_menu.addAction(self.export_action)
+        self.update_recents_menu()
 
         # view file
-        actionMenu = menubar.addMenu("Actions")
-        self.viewAction = QAction("Show all data", self)
-        self.viewAction.triggered.connect(self.ViewFile)
-        actionMenu.addAction(self.viewAction)
-        actionMenu.addSeparator()
-        self.resetTableSizeAction = QAction("Reset row/col height/width", self)
-        self.resetTableSizeAction.triggered.connect(self.resetTableSize)
-        actionMenu.addAction(self.resetTableSizeAction)
+        action_menu = menubar.addMenu("Actions")
+        self.view_action = QAction("Show all data", self)
+        self.view_action.triggered.connect(self.view_file)
+        action_menu.addAction(self.view_action)
+        action_menu.addSeparator()
+        self.reset_table_size_action = QAction("Reset row/col height/width", self)
+        self.reset_table_size_action.triggered.connect(self.reset_table_size)
+        action_menu.addAction(self.reset_table_size_action)
 
         # help
-        helpMenu = menubar.addMenu("Help")
-        helpAction = QAction("Help/Info", self)
-        helpAction.triggered.connect(self.showHelpDialog)
-        helpMenu.addAction(helpAction)
-        self.updateActionStates()
+        help_menu = menubar.addMenu("Help")
+        help_action = QAction("Help/Info", self)
+        help_action.triggered.connect(self.show_help_dialog)
+        help_menu.addAction(help_action)
+        self.update_action_states()
 
-    def initTrayIcon(self):
+    def init_tray_icon(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
 
@@ -856,33 +859,33 @@ class ParquetSQLApp(QMainWindow):
         tray_menu = QMenu(self)
 
         restore_action = QAction("Restore", self)
-        restore_action.triggered.connect(self.restoreFromTray)
-        newWindowAction = QAction("New Window", self)
-        newWindowAction.triggered.connect(self.openNewWindowInstance)
+        restore_action.triggered.connect(self.restore_from_tray)
+        new_window_action = QAction("New Window", self)
+        new_window_action.triggered.connect(self.open_new_window_instance)
         exit_action = QAction("Exit App", self)
-        exit_action.triggered.connect(self.exitFromTray)
+        exit_action.triggered.connect(self.exit_from_tray)
 
         tray_menu.addAction(restore_action)
-        tray_menu.addAction(newWindowAction)
+        tray_menu.addAction(new_window_action)
         tray_menu.addSeparator()
         tray_menu.addAction(exit_action)
 
         tray_icon.setContextMenu(tray_menu)
-        tray_icon.activated.connect(self.handleTrayActivation)
+        tray_icon.activated.connect(self.handle_tray_activation)
         tray_icon.show()
 
-        self.trayIcon = tray_icon
-        self.trayMenu = tray_menu
-        self.restoreAction = restore_action
-        self.exitAction = exit_action
+        self.tray_icon = tray_icon
+        self.tray_menu = tray_menu
+        self.restore_action = restore_action
+        self.exit_action = exit_action
 
-    def ensureTrayIcon(self) -> bool:
-        if self.trayIcon:
+    def ensure_tray_icon(self) -> bool:
+        if self.tray_icon:
             return True
-        self.initTrayIcon()
-        return self.trayIcon is not None
+        self.init_tray_icon()
+        return self.tray_icon is not None
 
-    def handleTrayActivation(self, reason):
+    def handle_tray_activation(self, reason: int):
         activation_reason = getattr(QSystemTrayIcon, "ActivationReason", None)
         valid_reasons = []
         if activation_reason:
@@ -896,9 +899,9 @@ class ParquetSQLApp(QMainWindow):
             valid_reasons = [val for val in (trigger, double_click) if val is not None]
 
         if not valid_reasons or reason in valid_reasons:
-            self.restoreFromTray()
+            self.restore_from_tray()
 
-    def restoreFromTray(self):
+    def restore_from_tray(self):
         # Ensure proper window state
         self.setWindowState(Qt.WindowNoState)
 
@@ -908,92 +911,86 @@ class ParquetSQLApp(QMainWindow):
         self.raise_()  # Bring to top of window stack
         self.activateWindow()  # Request focus
 
-        # # Force the window to come to front on Windows
-        # # This sets the window to stay on top temporarily
-        # current_flags = self.windowFlags()
-        # self.setWindowFlags(current_flags | Qt.WindowStaysOnTopHint)
-        # self.show()
-        # QTimer.singleShot(100, lambda: self._removeStayOnTop(current_flags))
-
-        if self.DATA is None and self.file_path:
+        if self.data is None and self.file_path:
             self.execute()
 
-    def _removeStayOnTop(self, original_flags: Qt.WindowFlags):
+    def _remove_stay_on_top(self, original_flags: Qt.WindowFlags):
         """Helper to remove the WindowStaysOnTopHint flag"""
         self.setWindowFlags(original_flags)
         self.show()
         self.raise_()
         self.activateWindow()
 
-    def hintTrayIcon(self):
-        if self._hinted_tray_icon or not self.trayIcon:
+    def hint_tray_icon(self):
+        if self._hinted_tray_icon or not self.tray_icon:
             return
-        self.trayIcon.showMessage(
+        self.tray_icon.showMessage(
             "ParVuEx", "ParVuEx is running in the tray.", msecs=3000
         )
         self._hinted_tray_icon = True
 
-    def minimizeOnLaunch(self):
-        if self.trayIcon:
+    def minimize_on_launch(self):
+        if self.tray_icon:
             self.hide()
-            self.hintTrayIcon()
+            self.hint_tray_icon()
         else:
             self.showMinimized()
 
-    def minimizeToTray(self):
-        if self.trayIcon:
+    def minimize_to_tray(self):
+        if self.tray_icon:
             self.hide()
-            self.hintTrayIcon()
+            self.hint_tray_icon()
         else:
             self.showMinimized()
 
-    def exitFromTray(self):
+    def exit_from_tray(self):
         self._force_close = True
-        self.releaseResources()
-        self._closeInstanceServer()
-        self._releaseInstanceLock()
-        QApplication.instance().quit()
+        self.release_resources()
+        self._close_instance_server()
+        self._release_instance_lock()
+        if app := QApplication.instance():
+            app.quit()
 
-    def releaseResources(self):
-        if self.queryThread and self.queryThread.isRunning():
-            self.queryThread.quit()
-            self.queryThread.wait()
-        self.queryThread = None
+    def release_resources(self):
+        if self.query_thread and self.query_thread.isRunning():
+            self.query_thread.quit()
+            self.query_thread.wait()
+        self.query_thread = None
 
-        if self.dataLoader and self.dataLoader.isRunning():
-            self.dataLoader.quit()
-            self.dataLoader.wait()
-        self.dataLoader = None
+        if self.data_loader and self.data_loader.isRunning():
+            self.data_loader.quit()
+            self.data_loader.wait()
+        self.data_loader = None
 
-        self.stopLoadingAnimation()
-        data = self.DATA
-        self.DATA = None
+        self.stop_loading_animation()
+        data = self.data
+        self.data = None
         if data is not None:
             del data
         self.df = pd.DataFrame()
         self._column_names = []
         self.total_pages = None
         self.total_row_count = None
-        self.resultTable.clear()
-        self.resultTable.setRowCount(0)
-        self.resultTable.setColumnCount(0)
-        self.updateResultLabel()
+        self.result_table.clear()
+        self.result_table.setRowCount(0)
+        self.result_table.setColumnCount(0)
+        self.update_result_label()
         self.update_page_text()
 
-    def closeEvent(self, event):
-        if not self._force_close and not self.trayIcon and self._is_last_open_window():
-            self.ensureTrayIcon()
+    def close_event(self, event: QCloseEvent):
+        if not self._force_close and not self.tray_icon and self._is_last_open_window():
+            self.ensure_tray_icon()
 
-        if not self._force_close and self.trayIcon:
+        if not self._force_close and self.tray_icon:
             event.ignore()
-            self.releaseResources()
-            self.closeFileAction.triggered.emit()
-            self.minimizeToTray()
+            self.release_resources()
+            self.close_file_action.triggered.emit()
+            self.minimize_to_tray()
             return
 
-        self.releaseResources()
-        self._closeInstanceServer()
-        self._releaseInstanceLock()
+        self.release_resources()
+        self._close_instance_server()
+        self._release_instance_lock()
         super().closeEvent(event)
         if event.isAccepted() and self in ParquetSQLApp.open_windows:
             ParquetSQLApp.open_windows.remove(self)
@@ -1017,7 +1014,7 @@ class ParquetSQLApp(QMainWindow):
         target_y = parent_geom.y() + (parent_height - dialog_height) // 2
         dialog.move(target_x, target_y)
 
-    def showHelpDialog(self):
+    def show_help_dialog(self):
         with open(settings.static_dir / "help.md", "r", encoding="utf-8") as f:
             help_text = f.read()
 
@@ -1046,23 +1043,23 @@ class ParquetSQLApp(QMainWindow):
 
         dialog.show()
 
-    def openFilePath(
+    def open_file_path(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         add_to_recents: bool = False,
         auto_execute: bool = True,
         load_prev_history: bool = True,
     ) -> bool:
         path = Path(file_path)
         if not path.exists():
-            self.resultLabel.setText(f"File not found: {path}")
+            self.result_label.setText(f"File not found: {path}")
             QMessageBox.warning(self, "File Not Found", f"File not found: {path}")
             return False
 
         self.file_path = path
-        self.updateWindowTitle()
-        self.updateActionStates()
-        self.releaseResources()
+        self.update_window_title()
+        self.update_action_states()
+        self.release_resources()
         self._last_query = None
         self._last_query_file = None
 
@@ -1077,23 +1074,25 @@ class ParquetSQLApp(QMainWindow):
             ParquetSQLApp.refresh_all_recents_menus()
 
         history_loaded = False
-        if load_prev_history and self.executeButton.text() == "Execute":
-            history_loaded = self.showPreviousHistoryEntry()
+        if load_prev_history and self.execute_button.text() == "Execute":
+            history_loaded = self.show_previous_history_entry()
 
         if auto_execute:
             if not history_loaded:
                 self.execute()
             else:
-                self.executeQuery(add_to_history=False)
+                self.execute_query(add_to_history=False)
 
         return True
 
-    def reloadFile(self):
+    def reload_file(self):
         if not self.file_path:
             return
-        self.openFilePath(self.file_path, add_to_recents=False, load_prev_history=False)
+        self.open_file_path(
+            self.file_path, add_to_recents=False, load_prev_history=False
+        )
 
-    def browseFile(self):
+    def browse_file(self):
         options = QFileDialog.Options()
         fileName, _ = QFileDialog.getOpenFileName(
             self,
@@ -1107,11 +1106,11 @@ class ParquetSQLApp(QMainWindow):
             if existing_window:
                 ParquetSQLApp.focus_window(existing_window, ask_reload=True)
                 return False
-            self.closeFile()
-            self.openFilePath(fileName, add_to_recents=True, auto_execute=False)
-            self.executeQuery(add_to_history=False)
+            self.close_file()
+            self.open_file_path(fileName, add_to_recents=True, auto_execute=False)
+            self.execute_query(add_to_history=False)
 
-    def openNewWindowInstance(self):
+    def open_new_window_instance(self):
         if not is_multi_window_mode():
             QMessageBox.information(
                 self,
@@ -1121,161 +1120,161 @@ class ParquetSQLApp(QMainWindow):
             return
         self._open_additional_window(None)
 
-    def ViewFile(self):
+    def view_file(self):
         if not self.file_path:
-            self.resultLabel.setText("Browse file first...")
+            self.result_label.setText("Browse file first...")
             return
 
         if not self.file_path.exists():
-            self.resultLabel.setText(f"File not found: {self.file_path}")
+            self.result_label.setText(f"File not found: {self.file_path}")
             return
 
-        self.releaseResources()
+        self.release_resources()
         self.execute()
 
     def execute(self):
         self._last_query = None
         self._last_query_file = self.file_path
         self.page = 1
-        self.loadPage()
+        self.load_page()
         self.update_page_text()
         self._last_column_widths = None
 
-    def clearQuery(self):
-        self.sqlEdit.clear()
-        self.sqlEdit.setPlainText(settings.render_vars(settings.default_sql_query))
+    def clear_query(self):
+        self.sql_edit.clear()
+        self.sql_edit.setPlainText(settings.render_vars(settings.default_sql_query))
         self._reset_history_navigation()
-        self.executeQuery(add_to_history=False)
+        self.execute_query(add_to_history=False)
         self._last_column_widths = None
 
-    def executeQuery(self, add_to_history: bool = True):
-        query_text = self.sqlEdit.toPlainText()
+    def execute_query(self, add_to_history: bool = True):
+        query_text = self.sql_edit.toPlainText()
         self._mark_sql_edit_dirty(False)
         if add_to_history:
             self._add_query_to_history(query_text)
         self.page = 1
-        self.loadPage(query=query_text)
+        self.load_page(query=query_text)
         self.update_page_text()
         self._queried = query_text
         self._last_column_widths = None
 
-    def startLoadingAnimation(self):
+    def start_loading_animation(self):
         if self.loading:
             self.loading.stop()
         if self._table_effect is None:
-            self._table_effect = QGraphicsOpacityEffect(self.resultTable)
+            self._table_effect = QGraphicsOpacityEffect(self.result_table)
         self._table_effect.setOpacity(0.35)
-        self.resultTable.setGraphicsEffect(self._table_effect)
-        self.resultTable.setDisabled(True)
+        self.result_table.setGraphicsEffect(self._table_effect)
+        self.result_table.setDisabled(True)
         if not self.isHidden():
             self.loading = AnimationWidget(self)
             self.loading.show()
 
-    def stopLoadingAnimation(self):
-        self.resultTable.setEnabled(True)
-        self.resultTable.setGraphicsEffect(None)
+    def stop_loading_animation(self):
+        self.result_table.setEnabled(True)
+        self.result_table.setGraphicsEffect(None)
         self._table_effect = None
         if self.loading:
             self.loading.stop()
             self.loading = None
 
-    def startDataLoader(self, file_path: str):
-        if self.dataLoader and self.dataLoader.isRunning():
+    def start_data_loader(self, file_path: str):
+        if self.data_loader and self.data_loader.isRunning():
             return
 
-        self.dataLoader = DataLoaderThread(
+        self.data_loader = DataLoaderThread(
             file_path=file_path,
             virtual_table_name=settings.render_vars(settings.default_data_var_name),
             batchsize=self.rows_per_page,
         )
-        self.dataLoader.dataReady.connect(self.onDataReady)
-        self.dataLoader.errorOccurred.connect(self.handleError)
-        self.dataLoader.start()
+        self.data_loader.data_ready.connect(self.on_data_ready)
+        self.data_loader.error_occurred.connect(self.handle_error)
+        self.data_loader.start()
 
-    def onDataReady(self, data):
-        self.DATA = data
-        loader = self.dataLoader
+    def on_data_ready(self, data: Data):
+        self.data = data
+        loader = self.data_loader
         if loader is not None:
             loader.wait()
             loader.deleteLater()
-        self.dataLoader = None
-        self.calcTotalPages(force=True)
-        self._startQueryThread(self.pending_query)
+        self.data_loader = None
+        self.calc_total_pages(force=True)
+        self._start_query_thread(self.pending_query)
 
-    def _startQueryThread(self, query: Optional[str]):
-        if not self.DATA:
+    def _start_query_thread(self, query: str | None):
+        if not self.data:
             return
 
-        if self.queryThread and self.queryThread.isRunning():
-            self.queryThread.quit()
-            self.queryThread.wait()
+        if self.query_thread and self.query_thread.isRunning():
+            self.query_thread.quit()
+            self.query_thread.wait()
 
-        self.queryThread = QueryThread(
-            DATA=self.DATA, query=query, nth_batch=self.page, app=self
+        self.query_thread = QueryThread(
+            data=self.data, query=query, nth_batch=self.page, app=self
         )
-        self.queryThread.resultReady.connect(self.handleResults)
-        self.queryThread.errorOccurred.connect(self.handleError)
-        self.queryThread.finished.connect(self.update_page_text)
-        self.queryThread.start()
+        self.query_thread.result_ready.connect(self.handle_results)
+        self.query_thread.error_occurred.connect(self.handle_error)
+        self.query_thread.finished.connect(self.update_page_text)
+        self.query_thread.start()
 
-    def loadPage(self, query: Optional[str] = None):
+    def load_page(self, query: str | None = None):
         if not self.file_path:
-            self.resultLabel.setText("Browse file first...")
+            self.result_label.setText("Browse file first...")
             return
         if not self.file_path.exists():
-            self.resultLabel.setText(f"File not found: {self.file_path}")
+            self.result_label.setText(f"File not found: {self.file_path}")
             return
         if isinstance(query, str) and query.strip():
             self._last_query = query
             self._last_query_file = self.file_path
         self.pending_query = query
-        self.startLoadingAnimation()
+        self.start_loading_animation()
 
-        if self.DATA is None:
-            self.startDataLoader(str(self.file_path))
+        if self.data is None:
+            self.start_data_loader(str(self.file_path))
         else:
-            self._startQueryThread(query)
+            self._start_query_thread(query)
 
-    def handleResults(self, df):
-        if self.queryThread:
-            self.queryThread.quit()
-            self.queryThread.wait()
-            self.queryThread = None
+    def handle_results(self, df: pd.DataFrame):
+        if self.query_thread:
+            self.query_thread.quit()
+            self.query_thread.wait()
+            self.query_thread = None
         self.df = df
-        self.calcTotalPages(force=True)
-        self.displayResults(df)
-        self.stopLoadingAnimation()
+        self.calc_total_pages(force=True)
+        self.display_results(df)
+        self.stop_loading_animation()
 
-    def handleError(self, error):
-        if self.queryThread and self.queryThread.isRunning():
-            self.queryThread.quit()
-            self.queryThread.wait()
-            self.queryThread = None
+    def handle_error(self, error: str):
+        if self.query_thread and self.query_thread.isRunning():
+            self.query_thread.quit()
+            self.query_thread.wait()
+            self.query_thread = None
 
-        if self.dataLoader and self.dataLoader.isRunning():
-            self.dataLoader.quit()
-            self.dataLoader.wait()
-        self.dataLoader = None
+        if self.data_loader and self.data_loader.isRunning():
+            self.data_loader.quit()
+            self.data_loader.wait()
+        self.data_loader = None
 
-        self.resultLabel.setText(f"Error: {error}")
-        self.stopLoadingAnimation()
+        self.result_label.setText(f"Error: {error}")
+        self.stop_loading_animation()
 
-    def displayResults(self, df):
-        self.updateResultLabel()
+    def display_results(self, df: pd.DataFrame):
+        self.update_result_label()
         # Set the table dimensions
-        self.resultTable.setColumnCount(len(df.columns))
-        self.resultTable.setRowCount(len(df.index))
+        self.result_table.setColumnCount(len(df.columns))
+        self.result_table.setRowCount(len(df.index))
 
         # Set the column headers
-        self._column_names = [str(col) for col in df.columns]
+        self._column_names = [str(col) for col in df.columns]  # type: ignore
         header_labels = [
             f"{idx + 1}\n{name}" for idx, name in enumerate(self._column_names)
         ]
         if header_labels:
-            self.resultTable.setHorizontalHeaderLabels(header_labels)
+            self.result_table.setHorizontalHeaderLabels(header_labels)
         else:
-            self.resultTable.setHorizontalHeaderLabels([])
-        header = self.resultTable.horizontalHeader()
+            self.result_table.setHorizontalHeaderLabels([])
+        header = self.result_table.horizontalHeader()
         if header:
             header.setDefaultAlignment(Qt.AlignCenter)
             # Connect column resize signal once the table has columns
@@ -1287,23 +1286,23 @@ class ParquetSQLApp(QMainWindow):
         for i in range(len(df.index)):
             for j in range(len(df.columns)):
                 item = QTableWidgetItem(str(df.iat[i, j]))
-                self.resultTable.setItem(i, j, item)
+                self.result_table.setItem(i, j, item)
 
         page_rows = len(df.index)
         start_index = self._current_page_row_offset()
         if page_rows:
             row_labels = [str(start_index + idx + 1) for idx in range(page_rows)]
-            self.resultTable.setVerticalHeaderLabels(row_labels)
+            self.result_table.setVerticalHeaderLabels(row_labels)
         else:
-            self.resultTable.setVerticalHeaderLabels([])
+            self.result_table.setVerticalHeaderLabels([])
 
-        self._applyRowHeight()
+        self._apply_row_height()
 
         if len(df.index) and len(df.columns):
-            self.resultTable.setCurrentCell(0, 0)
+            self.result_table.setCurrentCell(0, 0)
 
         self._is_applying_column_widths = True
-        self.resultTable.resizeColumnsToContents()
+        self.result_table.resizeColumnsToContents()
         self._limit_max_column_widths()
         self._restore_column_widths()
         self._collect_current_column_widths()
@@ -1315,12 +1314,9 @@ class ParquetSQLApp(QMainWindow):
         total_pages_value = (
             self.total_pages if isinstance(self.total_pages, int) else None
         )
-        total_display = (
-            total_pages_value if isinstance(total_pages_value, int) else "???"
-        )
-        has_data = self.DATA is not None
-        if hasattr(self, "pageLabel"):
-            self.pageLabel.setText(f"Page {self.page}")
+        has_data = self.data is not None
+        if hasattr(self, "page_label"):
+            self.page_label.setText(f"Page {self.page}")
         can_go_prev = has_data and self.page > 1
         at_last_page = (
             isinstance(total_pages_value, int) and self.page >= total_pages_value
@@ -1329,119 +1325,121 @@ class ParquetSQLApp(QMainWindow):
             not isinstance(total_pages_value, int) or not at_last_page
         )
 
-        if hasattr(self, "prevButton"):
-            self.prevButton.setEnabled(can_go_prev)
-        if hasattr(self, "firstButton"):
-            self.firstButton.setEnabled(can_go_prev)
-        if hasattr(self, "nextButton"):
-            self.nextButton.setEnabled(can_go_next)
-        if hasattr(self, "lastButton"):
-            self.lastButton.setEnabled(
+        if hasattr(self, "prev_button"):
+            self.prev_button.setEnabled(can_go_prev)
+        if hasattr(self, "first_button"):
+            self.first_button.setEnabled(can_go_prev)
+        if hasattr(self, "next_button"):
+            self.next_button.setEnabled(can_go_next)
+        if hasattr(self, "last_button"):
+            self.last_button.setEnabled(
                 has_data and isinstance(total_pages_value, int) and not at_last_page
             )
 
-    def firstPage(self):
-        if not self.DATA or self.page == 1:
+    def first_page(self):
+        if not self.data or self.page == 1:
             return
         self.page = 1
-        self.loadPage()
+        self.load_page()
         self.update_page_text()
 
-    def prevPage(self):
-        if not self.DATA:
+    def prev_page(self):
+        if not self.data:
             return
         if self.page > 1:
             self.page -= 1
-            self.loadPage()
+            self.load_page()
             self.update_page_text()
 
-    def nextPage(self):
+    def next_page(self):
         # if is the last page, do nothing
-        if not self.DATA:
+        if not self.data:
             return
         total_batches = (
-            self.DATA.total_batches
-            if isinstance(self.DATA.total_batches, int)
+            self.data.total_batches
+            if isinstance(self.data.total_batches, int)
             else self.total_pages
         )
         if isinstance(total_batches, int) and self.page >= total_batches:
             return
         self.page += 1
-        self.loadPage()
+        self.load_page()
         self.update_page_text()
 
-    def lastPage(self):
-        if not self.DATA:
+    def last_page(self):
+        if not self.data:
             return
-        self.calcTotalPages(force=True)
+        self.calc_total_pages(force=True)
         if not isinstance(self.total_pages, int) or self.page >= self.total_pages:
             return
         self.page = self.total_pages
-        self.loadPage()
+        self.load_page()
         self.update_page_text()
 
-    def calcTotalPages(self, force: bool = False):
+    def calc_total_pages(self, force: bool = False):
         """calculate how many pages data will have, if `force` is False then won't recalculate it"""
-        if self.DATA:
+        if self.data:
             if force or self.total_pages is None:
-                self.total_pages = self.DATA.calc_n_batches()
-                self.total_row_count = self.DATA.calc_total_rows()
+                self.total_pages = self.data.calc_n_batches()
+                self.total_row_count = self.data.calc_total_rows()
                 self.update_page_text()
-                self.updateResultLabel()
+                self.update_result_label()
 
-    def showContextMenu(self, pos):
+    def show_context_menu(self, pos: QPoint):
         contextMenu = QMenu(self)
 
-        header = self.resultTable.horizontalHeader()
+        header = self.result_table.horizontalHeader()
         column = header.logicalIndexAt(pos.x())
-        row = self.resultTable.indexAt(pos).row()
+        row = self.result_table.indexAt(pos).row()
 
         if column >= 0:
             column_name = self._get_column_name(column)
             value_counts = QAction("Show Value Counts", self)
             value_counts.triggered.connect(
-                lambda: self.showColumnValueCounts(column_name)
+                lambda: self.show_column_value_counts(column_name)
             )
             contextMenu.addAction(value_counts)
             row_values = QAction("Show This Row", self)
-            row_values.triggered.connect(lambda: self.showRowValues(row))
+            row_values.triggered.connect(lambda: self.show_row_values(row))
             contextMenu.addAction(row_values)
             contextMenu.addSeparator()
 
             # Create Copy Submenu
             copy_column_action = QAction("Copy Column Name", self)
-            copy_column_action.triggered.connect(lambda: self.copyColumnName(column))
+            copy_column_action.triggered.connect(lambda: self.copy_column_name(column))
             contextMenu.addAction(copy_column_action)
 
             copy_column_values_action = QAction("Copy Whole Column", self)
             copy_column_values_action.triggered.connect(
-                lambda: self.copyColumnValues(column)
+                lambda: self.copy_column_values(column)
             )
             contextMenu.addAction(copy_column_values_action)
 
             if row >= 0:
                 copy_row_values_action = QAction("Copy Whole Row", self)
                 copy_row_values_action.triggered.connect(
-                    lambda: self.copyRowValues(row)
+                    lambda: self.copy_row_values(row)
                 )
                 contextMenu.addAction(copy_row_values_action)
                 copy_row_values_action = QAction("Copy Whole Row as Dict", self)
                 copy_row_values_action.triggered.connect(
-                    lambda: self.copyRowValues(row, as_dict=True)
+                    lambda: self.copy_row_values(row, as_dict=True)
                 )
                 contextMenu.addAction(copy_row_values_action)
 
-        contextMenu.exec_(self.resultTable.mapToGlobal(pos))
+        contextMenu.exec_(self.result_table.mapToGlobal(pos))
 
     def _close_active_dialog(self):
         if self._dialog is not None:
             self._dialog.close()
 
-    def showColumnValueCounts(self, column: str):
+    def show_column_value_counts(self, column: str):
+        if not self.data:
+            return
         table_info = render_column_value_counts(
-            self.DATA.reader.duckdf_query,
+            self.data.reader.duckdf_query,
             column,
-            self.DATA.reader.duckdf,
+            self.data.reader.duckdf,
             max_rows=50,
         )
 
@@ -1474,8 +1472,8 @@ class ParquetSQLApp(QMainWindow):
         self._dialog = dialog
         dialog.show()
 
-    def showRowValues(self, row: int):
-        dict_values = self.df.iloc[row, :].to_dict()
+    def show_row_values(self, row: int):
+        dict_values = cast(dict[str, Any], self.df.iloc[row, :].to_dict())
         table_info = render_row_values(dict_values)
 
         if self._dialog is not None:
@@ -1507,23 +1505,23 @@ class ParquetSQLApp(QMainWindow):
         self._dialog = dialog
         dialog.show()
 
-    def copyColumnName(self, column):
+    def copy_column_name(self, column: int):
         column_name = self._get_column_name(column)
         if not column_name:
             return
         clipboard = QApplication.clipboard()
         clipboard.setText(column_name)
 
-    def copyColumnValues(self, column):
-        values = self.df.iloc[:, column].tolist()
+    def copy_column_values(self, column: int):
+        values = cast(list[Any], self.df.iloc[:, column].tolist())
         clipboard = QApplication.clipboard()
         clipboard.setText(str(values))
 
-    def copyRowValues(self, row: int, as_dict: bool = False):
+    def copy_row_values(self, row: int, as_dict: bool = False):
         if not as_dict:
-            values = self.df.iloc[row, :].tolist()
+            values = cast(list[Any], self.df.iloc[row, :].tolist())
         else:
-            txt = self.df.iloc[row, :].to_dict()
+            txt = cast(dict[str, Any], self.df.iloc[row, :].to_dict())
             for key in list(txt.keys()):
                 if txt[key] is None or isinstance(txt[key], (int, float, bool, str)):
                     continue
@@ -1536,93 +1534,94 @@ class ParquetSQLApp(QMainWindow):
     def _get_column_name(self, column: int) -> str:
         if 0 <= column < len(self._column_names):
             return self._column_names[column]
-        if isinstance(self.df, pd.DataFrame) and 0 <= column < len(self.df.columns):
+        if 0 <= column < len(self.df.columns):
             return str(self.df.columns[column])
-        header_item = self.resultTable.horizontalHeaderItem(column)
+        header_item = self.result_table.horizontalHeaderItem(column)
         if header_item:
             parts = header_item.text().splitlines()
             return parts[-1].strip()
         return ""
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj: QWidget, event: QEvent):
         dialog = self._dialog
         if (
             dialog is not None
             and dialog.isVisible()
             and event.type() == QEvent.MouseButtonPress
-            and isinstance(obj, QWidget)
+            # and isinstance(obj, QWidget)
         ):
             if obj is not dialog and not dialog.isAncestorOf(obj):
                 if obj is self or self.isAncestorOf(obj):
                     self._close_active_dialog()
 
         table_viewport = (
-            self.resultTable.viewport() if hasattr(self, "resultTable") else None
+            self.result_table.viewport() if hasattr(self, "result_table") else None
         )
-        if obj in (self.resultTable, table_viewport):
-            if event.type() == QEvent.Wheel and event.modifiers() & Qt.ShiftModifier:
-                scrollbar = self.resultTable.horizontalScrollBar()
+        if obj in (self.result_table, table_viewport):
+
+            if isinstance(event, QWheelEvent) and event.modifiers() & Qt.ShiftModifier:  # type: ignore
+                scroll_bar = self.result_table.horizontalScrollBar()
                 delta_point = event.pixelDelta()
                 if not delta_point.isNull():
                     scroll_delta = delta_point.x() or delta_point.y()
                     if scroll_delta:
-                        scrollbar.setValue(scrollbar.value() - scroll_delta)
+                        scroll_bar.setValue(scroll_bar.value() - scroll_delta)
                         return True
 
                 angle_delta = event.angleDelta()
                 scroll_delta = angle_delta.x() or angle_delta.y()
                 if scroll_delta:
-                    single_step = max(1, scrollbar.singleStep())
+                    single_step = max(1, scroll_bar.singleStep())
                     steps = scroll_delta / 120
-                    scrollbar.setValue(int(scrollbar.value() - steps * single_step))
+                    scroll_bar.setValue(int(scroll_bar.value() - steps * single_step))
                     return True
 
             if event.type() == QEvent.ToolTip:
                 help_event = cast(QHelpEvent, event)
-                viewport = self.resultTable.viewport()
+                viewport = self.result_table.viewport()
                 viewport_pos = viewport.mapFromGlobal(help_event.globalPos())
-                index = self.resultTable.indexAt(viewport_pos)
+                index = self.result_table.indexAt(viewport_pos)
                 if index.isValid():
-                    item = self.resultTable.item(index.row(), index.column())
+                    item = self.result_table.item(index.row(), index.column())
                     if item is not None:
                         QToolTip.showText(
                             help_event.globalPos(),
                             item.text(),
-                            self.resultTable,
+                            self.result_table,
                         )
                         return True
                 QToolTip.hideText()
                 event.ignore()
                 return True
 
-        if obj is self.sqlEdit and event.type() == QEvent.KeyPress:
+        if obj is self.sql_edit and isinstance(event, QKeyEvent):
             key = event.key()
             modifiers = event.modifiers()
             ctrl_only = bool(modifiers & Qt.ControlModifier) and not (
                 modifiers & (Qt.ShiftModifier | Qt.AltModifier)
-            )
+            )  # type: ignore
             if ctrl_only:
                 if key == Qt.Key_Up:
-                    if self.showPreviousHistoryEntry():
+                    if self.show_previous_history_entry():
                         return True
                     return super().eventFilter(obj, event)
                 if key == Qt.Key_Down:
-                    if self.showNextHistoryEntry():
+                    if self.show_next_history_entry():
                         return True
                     return super().eventFilter(obj, event)
                 if key == Qt.Key_Left:
-                    self.prevPage()
+                    self.prev_page()
                     return True
                 if key == Qt.Key_Right:
-                    self.nextPage()
+                    self.next_page()
                     return True
 
             if key in (Qt.Key_Return, Qt.Key_Enter):
-                if modifiers & Qt.ShiftModifier:
+                if modifiers & Qt.ShiftModifier:  # type: ignore
                     if self._history_index is not None:
                         self._reset_history_navigation()
                     return False
-                self.executeQuery()
+                self.execute_query()
                 return True
 
             self._handle_edit_check()
@@ -1633,7 +1632,7 @@ class ParquetSQLApp(QMainWindow):
         def delayed_handle_edit_check():
             if self._queried is None:
                 return
-            text_changed = self._queried.strip() != self.sqlEdit.toPlainText().strip()
+            text_changed = self._queried.strip() != self.sql_edit.toPlainText().strip()
             if handle_history and self._history_index is not None and text_changed:
                 self._reset_history_navigation()
 
@@ -1659,7 +1658,7 @@ class ParquetSQLApp(QMainWindow):
     def _reset_history_navigation(self):
         self._history_index = None
         self._history_snapshot = None
-        self.executeButton.setText("Execute")
+        self.execute_button.setText("Execute")
 
     def _begin_history_navigation(self) -> bool:
         if (
@@ -1670,56 +1669,33 @@ class ParquetSQLApp(QMainWindow):
         return True
 
     def _apply_history_entry(self, text: str):
-        previous_state = self.sqlEdit.blockSignals(True)
+        previous_state = self.sql_edit.blockSignals(True)
         try:
-            self.sqlEdit.setPlainText(text)
-            cursor = self.sqlEdit.textCursor()
+            self.sql_edit.setPlainText(text)
+            cursor = self.sql_edit.textCursor()
             cursor.movePosition(QTextCursor.End)
-            self.sqlEdit.setTextCursor(cursor)
+            self.sql_edit.setTextCursor(cursor)
         finally:
-            self.sqlEdit.blockSignals(previous_state)
+            self.sql_edit.blockSignals(previous_state)
 
-    def _key_changes_text(self, event) -> bool:
-        key = event.key()
-        modifiers = event.modifiers()
-        text = event.text()
-        if key in (Qt.Key_Backspace, Qt.Key_Delete):
-            return True
-        if key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab) and not (
-            modifiers & Qt.ControlModifier
-        ):
-            return True
-        if text and not (modifiers & Qt.ControlModifier):
-            return True
-        if modifiers & Qt.ControlModifier and key in (
-            Qt.Key_V,
-            Qt.Key_X,
-            Qt.Key_Z,
-            Qt.Key_Y,
-        ):
-            return True
-        if modifiers & Qt.ShiftModifier and key == Qt.Key_Insert:
-            return True
-        return False
-
-    def showPreviousHistoryEntry(self) -> bool:
+    def show_previous_history_entry(self) -> bool:
         if not self._begin_history_navigation():
             return False
         if self._history_index is None:
-            self._history_snapshot = self.sqlEdit.toPlainText()
+            self._history_snapshot = self.sql_edit.toPlainText()
             self._history_index = 0
         elif self._history_index + 1 < len(history.queries[str(self.file_path)]):
             self._history_index += 1
         entries = history.queries[str(self.file_path)]
         entry = entries[self._history_index]
         self._apply_history_entry(entry)
-        self.executeButton.setText(
+        self.execute_button.setText(
             f"Execute (-{self._history_index + 1}/{len(entries)})"
         )
         self._handle_edit_check(handle_history=False)
         return True
 
-    def showNextHistoryEntry(self) -> bool:
+    def show_next_history_entry(self) -> bool:
         if (
             str(self.file_path) not in history.queries
             or not history.queries[str(self.file_path)]
@@ -1733,7 +1709,7 @@ class ParquetSQLApp(QMainWindow):
             entries = history.queries[str(self.file_path)]
             entry = entries[self._history_index]
             self._apply_history_entry(entry)
-            self.executeButton.setText(
+            self.execute_button.setText(
                 f"Execute (-{self._history_index + 1}/{len(entries)})"
             )
             self._handle_edit_check(handle_history=False)
@@ -1748,27 +1724,27 @@ class ParquetSQLApp(QMainWindow):
 
         return False
 
-    def exportResults(self):
-        if not self.DATA:
-            self.resultLabel.setText("No data to export")
+    def export_results(self):
+        if not self.data:
+            self.result_label.setText("No data to export")
             return
         options = QFileDialog.Options()
-        filePath, _ = QFileDialog.getSaveFileName(
+        file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Results",
             "",
             "CSV Files (*.csv);;Parquet Files (*.parquet);;All Files (*)",
             options=options,
         )
-        if filePath:
-            if filePath.endswith(".csv"):
-                self.DATA.reader.duckdf_query.to_csv(filePath)
+        if file_path:
+            if file_path.endswith(".csv"):
+                self.data.reader.duckdf_query.to_csv(file_path)
             # elif filePath.endswith('.xlsx'):
             # # todo: add support for xlsx(https://duckdb.org/docs/guides/file_formats/excel_export.html)
             #     self.DATA.reader.duckdf_query.to(filePath, index=False)
 
-            elif filePath.endswith(".parquet"):
-                self.DATA.reader.duckdf_query.to_parquet(filePath)
+            elif file_path.endswith(".parquet"):
+                self.data.reader.duckdf_query.to_parquet(file_path)
             else:
                 QMessageBox.warning(
                     self,
@@ -1776,12 +1752,12 @@ class ParquetSQLApp(QMainWindow):
                     "Please select a valid file type (CSV or XLSX).",
                 )
 
-    def toggleTableInfo(self):
+    def toggle_table_info(self):
         if self.file_path and self.file_path.exists():
-            if not self.DATA:
+            if not self.data:
                 return
 
-            table_info = render_df_info(self.DATA.reader.duckdf_query)
+            table_info = render_df_info(self.data.reader.duckdf_query)
 
             if self._dialog is not None:
                 self._dialog.close()
@@ -1813,7 +1789,7 @@ class ParquetSQLApp(QMainWindow):
             self._dialog = dialog
             dialog.show()
 
-    def editSettings(self):
+    def edit_settings(self):
         settings_file = settings.usr_settings_file
         default_settings_file = settings.default_settings_file
         if not Path(settings_file).exists():
@@ -1843,9 +1819,9 @@ class ParquetSQLApp(QMainWindow):
                 super().__init__()
                 self.settings = settings
                 self.default_settings_file = default_settings_file
-                self.initUI()
+                self.init_UI()
 
-            def validateSettings(self):
+            def validate_settings(self):
                 for field, line_edit in self.fields.items():
                     if field in self.read_only_fields:
                         continue
@@ -1886,10 +1862,10 @@ class ParquetSQLApp(QMainWindow):
 
                 return True
 
-            def initUI(self):
+            def init_UI(self):
                 layout = QFormLayout()
 
-                self.fields = {}
+                self.fields: dict[str, QLineEdit] = {}
                 for field, value in self.settings.model_dump().items():
                     if field in self.read_only_fields:
                         continue
@@ -1907,11 +1883,11 @@ class ParquetSQLApp(QMainWindow):
                 button_layout = QHBoxLayout()
 
                 save_button = QPushButton("Save")
-                save_button.clicked.connect(self.saveSettings)
+                save_button.clicked.connect(self.save_settings)
                 button_layout.addWidget(save_button)
 
                 reset_button = QPushButton("Reset to Default")
-                reset_button.clicked.connect(self.resetSettings)
+                reset_button.clicked.connect(self.reset_settings)
                 button_layout.addWidget(reset_button)
 
                 layout.addRow(button_layout)
@@ -1920,8 +1896,8 @@ class ParquetSQLApp(QMainWindow):
                 self.setWindowTitle("Edit Settings")
                 self.resize(400, 300)
 
-            def saveSettings(self):
-                if not self.validateSettings():
+            def save_settings(self):
+                if not self.validate_settings():
                     QMessageBox.critical(
                         self, "Error", "Please fix the errors before saving."
                     )
@@ -1963,7 +1939,7 @@ class ParquetSQLApp(QMainWindow):
                 self.settings.save_settings()
                 self.accept()
 
-            def resetSettings(self):
+            def reset_settings(self):
                 default_settings_file = (
                     Path(__file__).parent / "settings" / "default_settings.json"
                 )
@@ -1981,23 +1957,23 @@ class ParquetSQLApp(QMainWindow):
 
         dialog = SettingsDialog(settings, default_settings_file)
         if dialog.exec_() == QDialog.Accepted:
-            self.handleSettingsChanged()
+            self.handle_settings_changed()
 
-    def handleSettingsChanged(self):
-        self._reloadSettingsModel()
-        self.applySettingsToUi()
+    def handle_settings_changed(self):
+        self._reload_settings_model()
+        self.apply_settings_to_UI()
         ParquetSQLApp.refresh_all_instance_actions()
-        self._refreshDataAfterSettingsChange()
+        self._refresh_data_after_settings_change()
 
-    def _reloadSettingsModel(self):
+    def _reload_settings_model(self):
         refreshed_settings = Settings.load_settings()
         for field_name in Settings.model_fields:
             setattr(settings, field_name, getattr(refreshed_settings, field_name))
 
-    def _refreshDataAfterSettingsChange(self):
+    def _refresh_data_after_settings_change(self):
         if not self.file_path:
             return
-        if self.DATA is None and self.dataLoader is None:
+        if self.data is None and self.data_loader is None:
             return
         has_query = isinstance(self._last_query, str) and self._last_query.strip()
         query_to_run = (
@@ -2005,22 +1981,22 @@ class ParquetSQLApp(QMainWindow):
             if has_query and self._last_query_file == self.file_path
             else None
         )
-        self.releaseResources()
+        self.release_resources()
         self.page = 1
         if query_to_run:
-            self.loadPage(query=query_to_run)
+            self.load_page(query=query_to_run)
         else:
             self._last_query = None
             self._last_query_file = self.file_path
-            self.loadPage()
+            self.load_page()
 
-    def updateRecentsMenu(self):
+    def update_recents_menu(self):
         """Refresh the File menu to show the latest recents list."""
-        if not hasattr(self, "fileMenu"):
+        if not hasattr(self, "file_menu"):
             return
 
         for action in self._recent_actions:
-            self.fileMenu.removeAction(action)
+            self.file_menu.removeAction(action)
             action.deleteLater()
         self._recent_actions = []
         self._recents_separator = None
@@ -2028,7 +2004,7 @@ class ParquetSQLApp(QMainWindow):
         if not recents.recents:
             return
 
-        separator = cast(QAction, self.fileMenu.addSeparator())
+        separator = self.file_menu.addSeparator()
         self._recents_separator = separator
         self._recent_actions.append(separator)
 
@@ -2036,16 +2012,21 @@ class ParquetSQLApp(QMainWindow):
             filename = Path(recent).name
             name = f"{filename} @ {Path(recent).parent}"
             recent_action = QAction(name, self)
-            recent_action.triggered.connect(
-                lambda checked, path=recent: self.openRecentFile(path)
-            )
-            self.fileMenu.addAction(recent_action)
+
+            def make_handler(path: str):
+                def handler(checked: bool) -> None:
+                    self.open_recent_file(checked, path)
+
+                return handler
+
+            recent_action.triggered.connect(make_handler(recent))
+            self.file_menu.addAction(recent_action)
             self._recent_actions.append(recent_action)
 
         clear_action = QAction("Clear List", self)
         clear_action.setFont(QFont("Courier", 9, weight=QFont.Bold))
         clear_action.triggered.connect(self.clearRecents)
-        self.fileMenu.addAction(clear_action)
+        self.file_menu.addAction(clear_action)
         self._recent_actions.append(clear_action)
 
     def clearRecents(self):
@@ -2053,7 +2034,7 @@ class ParquetSQLApp(QMainWindow):
         recents.save_recents()
         ParquetSQLApp.refresh_all_recents_menus()
 
-    def openRecentFile(self, file_path):
+    def open_recent_file(self, checked: bool, file_path: str):
         if not Path(file_path).exists():
             reply = QMessageBox.question(
                 self,
@@ -2072,4 +2053,4 @@ class ParquetSQLApp(QMainWindow):
         if existing_window:
             ParquetSQLApp.focus_window(existing_window, ask_reload=True)
             return False
-        self.openFilePath(file_path)
+        self.open_file_path(file_path)

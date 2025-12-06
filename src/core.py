@@ -1,9 +1,8 @@
 from pathlib import Path
-from typing import Union, List, Iterator, Optional
+from typing import Iterator
 import math
 import chardet
 import os
-
 import pandas as pd
 import duckdb
 import pyarrow as pa
@@ -65,7 +64,7 @@ class Reader:
         self.path = path
         self.virtual_table_name = virtual_table_name
         self.batchsize = batchsize
-        self._tmp_csv_path: Optional[Path] = None
+        self._tmp_csv_path: Path | None = None
 
         logger.info(
             f"Initializing Reader with path: {path} and virtual_table_name: {virtual_table_name}"
@@ -225,11 +224,11 @@ class Reader:
         if not as_df:
             batches = table.to_batches(max_chunksize=self.batchsize)
             return batches[0] if batches else None
-        return table.to_pandas(types_mapper=_pyarrow_types_mapper)
+        return table.to_pandas(types_mapper=_pyarrow_types_mapper)  # type: ignore
 
     def search(
         self, search_query: str, column: str, as_df: bool = False, case: bool = False
-    ) -> Union[duckdb.DuckDBPyRelation, pd.DataFrame]:
+    ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
         """
         search query string inside column
             Parameters:
@@ -255,7 +254,7 @@ class Reader:
 
     def query(
         self, query: str, as_df: bool = False
-    ) -> Union[duckdb.DuckDBPyRelation, pd.DataFrame]:
+    ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
         """run provided sql query with class lvl setted virtual_table_name name"""
         logger.info(
             f"Executing query: '{query}' on virtual_table_name: {self.virtual_table_name}"
@@ -269,10 +268,10 @@ class Reader:
         self.update_batches()
         return duck_res.to_df() if as_df else duck_res
 
-    def agg_get_uniques(self, column_name: str) -> List[str]:
+    def agg_get_uniques(self, column_name: str) -> list[str]:
         """get unique values for given column"""
         logger.debug(f"Getting unique values for column: {column_name}")
-        return self.duckdf_query.unique(column_name).to_df()[column_name].to_list()
+        return self.duckdf_query.unique(column_name).to_df()[column_name].to_list()  # type: ignore
 
     def __str__(self):
         return f"<ParVuDataReader:{self.path.as_posix()}[{self.columns}]>"
@@ -300,7 +299,7 @@ class Data:
 
         self.ftype = "pq" if self.path.suffix == ".parquet" else "txt"
         # total_batches calculated on demand to avoid full materialization
-        self.total_batches: Union[int, str] = "???"
+        self.total_batches: int | str = "???"
         self.columns = self.reader.columns.copy()
 
         logger.info(
@@ -312,7 +311,7 @@ class Data:
 
     def get_nth_batch(
         self, n: int, as_df: bool = True
-    ) -> Union[pd.DataFrame, pa.RecordBatch]:
+    ) -> pd.DataFrame | pa.RecordBatch | None:
         logger.debug(
             f"Getting {n}th batch with chunksize: {self.reader.batchsize} as_df: {as_df}"
         )
@@ -330,14 +329,14 @@ class Data:
         logger.debug(f"Getting generator with chunksize: {chunksize}")
         return self.reader.get_generator(chunksize)
 
-    def get_uniques(self, column_name: str) -> List[str]:
+    def get_uniques(self, column_name: str) -> list[str]:
         """get unique values for given column"""
         logger.debug(f"Getting unique values for column: {column_name}")
         return self.reader.agg_get_uniques(column_name)
 
     def execute_query(
         self, query: str, as_df: bool = False
-    ) -> Union[duckdb.DuckDBPyRelation, pd.DataFrame]:
+    ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
         """executes provided query and update duckdf_query"""
         logger.info(
             f"Executing query: '{query}' with page size: {self.reader.batchsize}"
@@ -348,7 +347,7 @@ class Data:
 
     def search(
         self, query: str, column: str, as_df: bool = True, case: bool = False
-    ) -> Union[duckdb.DuckDBPyRelation, pd.DataFrame]:
+    ) -> duckdb.DuckDBPyRelation | pd.DataFrame:
         logger.info(
             f"Searching for '{query}' in column '{column}' with case sensitivity: {case}"
         )

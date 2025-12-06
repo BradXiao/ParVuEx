@@ -13,7 +13,7 @@ class BadQueryException:
 
     name: str
     message: str
-    result: str = None
+    result: str | None = None
 
 
 class Settings(BaseModel):
@@ -75,8 +75,6 @@ class Settings(BaseModel):
 
     def render_vars(self, query: str) -> str:
         """render inside the query the vars of the settings"""
-        if not isinstance(query, str):
-            return query
 
         query = query.replace(
             "$(default_data_var_name)", str(self.default_data_var_name)
@@ -136,7 +134,7 @@ class Settings(BaseModel):
     @classmethod
     def load_settings(cls):
         user_app_settings_dir: Path = Path.home() / ".ParVuEx"
-        # app settings dir doesnt exist - mb first start
+        # app settings dir doesn't exist - maybe first start
         if not user_app_settings_dir.exists():
             cls.reset_user_settings()
         try:
@@ -181,9 +179,8 @@ class Recents(BaseModel):
         model = cls.model_validate_json(recents_data)
         return model
 
-    def add_recent(self, path):
+    def add_recent(self, path: str):
         # add browsed file to recents
-
         try:
             idx = self.recents.index(path)
             self.recents.insert(0, self.recents.pop(idx))
@@ -239,7 +236,7 @@ class History(BaseModel):
     def get_col_widths(self, file_path: str) -> dict[str, int]:
         """Return a shallow copy of stored column widths for a file."""
         stored = self.col_width.get(file_path, {})
-        return dict(stored) if isinstance(stored, dict) else {}
+        return dict(stored)
 
     def add_query(self, file_path: str, query: str):
         # add query to history
