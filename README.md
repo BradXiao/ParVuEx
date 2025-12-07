@@ -1,41 +1,63 @@
 # ParVuEx - **Par**quet **Vie**wer **Ex**tended
 
-![parquet logo](https://datos.gob.es/sites/default/files/styles/blog_image/public/blog/image/logo_formato_parquet.jpg?itok=CT-UucXj)
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/main.png" width="400">
 
 ## Overview
 
-This application allows you to execute SQL queries on Parquet files. Uses [DuckDB](https://duckdb.org/) Python implementation
+This application allows you to execute SQL queries on Parquet/CSV files. Uses [DuckDB](https://duckdb.org/) Python implementation.
 
 ## Extended Version Major Changes
 
--   Redesign UI
-    -   Concise main UI
-    -   Simplify pagination
-    -   Add simple status info
-    -   Improve dialogs
-    -   Support SQL statement history
-    -   Auto remember columns width
+#### Redesign UI
 
-![main](https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/main.png)
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/highlighting.png" width="400">
+
+-   Enhanced SQL statement highlighting
+    -   Support column names highlighting
+    -   Support common highlighting such as comments, values, strings
+    -   Customable highlighting keywords
+-   Add simple status info
+    -   Showing total/current/selected rows
+-   Support SQL statement history
+    -   Use hotkeys to switch previous statements
+-   Concise main UI
+-   Simplify pagination
+-   Improve dialogs
+-   Auto remember columns width
+
+#### SQL Edit
+
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/insert_selected_columns.png" width="400">
+
+-   Support inserting specific columns
+
+#### Statistics
+
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/table_info.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts_highlight.png" width="400">
+
+-   Value counts
+    -   Show statistics on selected columns
+-   Quick row values
+    -   Show selected row values in a table
+-   Table info
+-   Quick highlight characters as you type
+
+#### Support launcher
+
+-   Speedup startup time
+    -   Use only one core
+    -   Minimize to tray
+-   Support single/multi windows
+
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/multi_windows.png" width="400">
+
+#### Others
 
 -   Add new hotkeys
--   Support launcher
-    -   Speedup startup time
-    -   Support single/multi windows
--   Quick statistics
-    -   Value counts
-    -   Quick row values
-
-![value counts](https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png)
-
-## Features
-
--   Load Parquet files
--   Execute SQL queries on the file
--   Filter results
--   Export results to CSV or Excel
--   Syntax highlighting for SQL
--   Minimalistic design
+-   Memory efficient (can open a large file quickly)
+-   Support _.csv, _.parquet
 
 ## Hotkeys
 
@@ -51,12 +73,9 @@ This application allows you to execute SQL queries on Parquet files. Uses [DuckD
 
 ## How to Use
 
-1. Click 'Browse' to select a Parquet file.
+1. Click `File` → `Open` to select a Parquet/CSV file.
 2. Write your SQL query in the provided text area.
-3. Click 'Execute' to run the query and see results.
-4. Use the 'Filter' button to apply filters to the results.
-5. Export results using the 'Export' option in the 'File' menu.
-6. Adjust the SQL editor size by dragging the splitter.
+3. Click `Execute` or press `Enter` to run the query and see results.
 
 ## Build
 
@@ -67,3 +86,7 @@ This application allows you to execute SQL queries on Parquet files. Uses [DuckD
 
 1. Which SQL Queries are supported?
     - Basically it supports data transformation, non join queries. Look [here](https://duckdb.org/docs/sql/query_syntax/select)
+
+## Icon
+
+<a href="https://www.flaticon.com/free-icons/table-of-content" title="table of content icons">Table of content icons created by iconsax - Flaticon</a>

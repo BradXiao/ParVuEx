@@ -1,6 +1,6 @@
 # ParVuEx Help
 
-## `v1.1.1`
+## `v1.2.0`
 
 ### Overview
 
@@ -15,31 +15,36 @@ This application allows you to execute SQL queries on Parquet files.
     -   Improve dialogs
     -   Support SQL statement history
     -   Auto remember columns width
+    -   Enhanced SQL statement highlighting
 -   Add new hotkeys
 -   Support launcher
     -   Speedup startup time
     -   Support single/multi windows
+-   SQL Edit
+    -   Support inserting specific columns
 -   Quick statistics
     -   Value counts
     -   Quick row values
+-   Support _.csv, _.parquet
+-   Memory efficient (can open a large file quickly)
 
-### Features
+### Hotkeys
 
--   Load Parquet files
--   Execute SQL queries on the file
--   Filter results
--   Export results to CSV or Excel
--   Syntax highlighting for SQL
--   Minimalistic design
+-   Browse SQL statement history
+    -   `Ctrl`+`↑`/`↓`
+-   Pagination
+    -   `Ctrl`+`←`/`→`
+-   Excute
+    -   `Enter`
+    -   `Shift`+`Enter` for new lines
+-   Mouse scroll the table horizontally
+    -   Hold `Shift`
 
 ### How to Use
 
-1. Click 'Browse' to select a Parquet file.
+1. Click `File` → `Open` to select a Parquet/CSV file.
 2. Write your SQL query in the provided text area.
-3. Click 'Execute' to run the query and see results.
-4. Use the 'Filter' button to apply filters to the results.
-5. Export results using the 'Export' option in the 'File' menu.
-6. Adjust the SQL editor size by dragging the splitter.
+3. Click `Execute` or press `Enter` to run the query and see results.
 
 ### FAQ:
 
