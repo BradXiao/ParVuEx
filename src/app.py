@@ -397,8 +397,15 @@ class ParquetSQLApp(QMainWindow):
 
         self.dialog_controller = DialogController(self, settings)
 
+        self.result_controller = ResultsController(
+            self, settings, history, self.dialog_controller
+        )
         self.sql_edit_controller = SqlEditController(
-            settings, history, self.data_container, self.dialog_controller
+            settings,
+            history,
+            self.data_container,
+            self.dialog_controller,
+            self.result_controller,
         )
 
         editor_layout = QHBoxLayout()
@@ -412,9 +419,6 @@ class ParquetSQLApp(QMainWindow):
         editor_layout.addLayout(control_layout)
         layout.addLayout(editor_layout)
 
-        self.result_controller = ResultsController(
-            self, settings, history, self.dialog_controller
-        )
         layout.addWidget(self.result_controller.result_label)
         layout.addWidget(self.result_controller.result_table, stretch=1)
 

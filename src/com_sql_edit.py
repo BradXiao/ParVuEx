@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QPoint, QTimer, Qt
 from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import (
     QPushButton,
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from schemas import History, Settings
     from com_dialog import DialogController
     from components import DataContainer
+    from com_results import ResultsController
 
 
 class SqlEditController:
@@ -24,10 +25,12 @@ class SqlEditController:
         history: History,
         data_container: DataContainer,
         dialog_controller: DialogController,
+        results_controller: ResultsController,
     ):
         self._settings = settings
         self._data_container = data_container
         self._dialog_controller = dialog_controller
+        self._results_controller = results_controller
         self._history = history
         self._sql_edit_dirty: bool = False
         self._history_index: int | None = None
@@ -38,6 +41,10 @@ class SqlEditController:
         self.sql_edit.setAcceptRichText(False)
         self.sql_edit.setPlainText(settings.render_vars(settings.default_sql_query))
         self.sql_edit.setMaximumHeight(90)
+        self.sql_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.sql_edit.customContextMenuRequested.connect(
+            self._show_sql_edit_context_menu
+        )
 
         self.execute_button = QPushButton("Execute")
         self.execute_button.setFixedSize(120, 25)
@@ -257,3 +264,57 @@ class SqlEditController:
             self.handle_edit_check()
             return True
         return False
+
+    def _insert_columns(self):
+        if not self._data_container.data:
+            return
+        columns = self._data_container.data.columns
+        cursor = self.sql_edit.textCursor()
+        cursor.insertText(f"({','.join(columns)})")
+
+    def _insert_selected_columns(self):
+        table = self._results_controller.result_table
+        selected_column_names: list[str] = []
+        selection_model = table.selectionModel()
+        selection_columns = selection_model.selectedColumns()
+        for column_info in selection_columns:
+            selected_column_names.append(table.get_column_name(column_info.column()))
+
+        if not selected_column_names:
+            return
+        cursor = self.sql_edit.textCursor()
+        cursor.insertText(f"({','.join(selected_column_names)})")
+
+    def _show_sql_edit_context_menu(self, pos: QPoint):
+        menu = self.sql_edit.createStandardContextMenu()
+        menu.addSeparator()
+
+        insert_columns_action = menu.addAction("Insert All Columns")
+        insert_columns_action.triggered.connect(self._insert_columns)
+        insert_selected_columns_action = menu.addAction("Insert Selected Columns")
+        insert_selected_columns_action.triggered.connect(self._insert_selected_columns)
+        menu.addSeparator()
+
+        execute_action = menu.addAction("Execute Query")
+        execute_action.triggered.connect(lambda: self.execute_query())
+
+        default_action = menu.addAction("Reset to Default SQL")
+        default_action.triggered.connect(lambda: self._clear_query())
+
+        table_info_action = menu.addAction("Table Info")
+        table_info_action.triggered.connect(lambda: self.toggle_table_info())
+        table_info_action.setEnabled(
+            self._data_container.is_file_open() and bool(self._data_container.data)
+        )
+
+        menu.addSeparator()
+        has_history = self._begin_history_navigation()
+        previous_action = menu.addAction("History - Previous")
+        previous_action.triggered.connect(lambda: self._show_previous_history_entry())
+        previous_action.setEnabled(has_history)
+
+        next_action = menu.addAction("History - Next")
+        next_action.triggered.connect(lambda: self._show_next_history_entry())
+        next_action.setEnabled(self._history_index is not None)
+
+        menu.exec_(self.sql_edit.mapToGlobal(pos))
