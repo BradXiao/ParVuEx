@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Iterator
 import math
-import chardet
-import os
 import pandas as pd
 import duckdb
 import pyarrow as pa
@@ -10,6 +8,7 @@ import pyarrow.types as patypes
 from loguru import logger
 
 from schemas import settings
+from utils import convert_to_utf8
 
 
 logger.add(settings.user_logs_dir / "file_{time}.log")
@@ -72,13 +71,15 @@ class Reader:
 
         self.validate()
         # origin file
-        self.duckdf = self.__read_into_duckdf()  # .sort("__index_level_0__")
+        self.duckdf = self._read_into_duckdf()  # .sort("__index_level_0__")
         # for querying
         self.duckdf_query = self.duckdf
         self.total_rows: int = 0
+        self.total_view_rows: int = 0
         self.columns_query = list(self.duckdf_query.columns)
         self.columns = list(self.duckdf.columns)
         self.update_batches()
+        self.total_rows = self.total_view_rows
 
         logger.debug(f"Reader initialized with columns: {self.columns}")
 
@@ -87,98 +88,6 @@ class Reader:
         logger.debug("Refreshing relation metadata")
         self._update_column_metadata()
         self._update_row_metadata()
-
-    def _update_row_metadata(self):
-        try:
-            count_relation = self.duckdf_query.aggregate("COUNT(*) AS total_rows")
-            count_df = count_relation.to_df()
-            if not count_df.empty:
-                self.total_rows = int(count_df.iloc[0, 0])
-            else:
-                self.total_rows = 0
-        except Exception as exc:
-            logger.warning(f"Failed to count rows: {exc}")
-            self.total_rows = 0
-
-    def _update_column_metadata(self):
-        try:
-            self.columns_query = list(self.duckdf_query.columns)
-        except Exception:
-            self.columns_query = list(self.columns)
-
-    def _empty_dataframe(self) -> pd.DataFrame:
-        """Create an empty DataFrame that preserves column ordering."""
-        return pd.DataFrame(columns=pd.Index(self.columns_query))
-
-    def __read_into_duckdf(self) -> duckdb.DuckDBPyRelation:
-        path_str = str(self.path)
-        logger.debug(f"Reading data from {path_str}")
-        if self.path.suffix.lower() == ".parquet":
-            return duckdb.read_parquet(path_str)
-        elif self.path.suffix.lower() == ".csv":
-            # clear any previous temp file from earlier reads
-            self._cleanup_tmp_csv()
-            try:
-                return duckdb.read_csv(path_str, encoding="UTF8")
-            except Exception as exc:
-                logger.warning(f"duckdb.read_csv UTF-8 failed: {exc}")
-
-            # guess encoding type
-            encoding = self._detect_encoding()
-            try:
-                # convert text from that encoding to utf-8 to a tmp file
-                with open(path_str, "r", encoding=encoding, errors="replace") as src:
-                    tmp_file = self.path.with_suffix(".tmp.csv")
-                    if tmp_file.exists():
-                        os.remove(tmp_file)
-                    with open(tmp_file, "w", encoding="UTF8") as tmp:
-                        for chunk in iter(lambda: src.read(8192), ""):
-                            tmp.write(chunk)
-                        self._tmp_csv_path = tmp_file
-                logger.info(
-                    f"Retrying CSV read after converting from {encoding} to UTF-8"
-                )
-                # read tmp file with duckdb
-                return duckdb.read_csv(str(self._tmp_csv_path), encoding="UTF8")
-            except Exception as inner_exc:
-                logger.error(
-                    f"Failed to read CSV after encoding conversion ({encoding} -> UTF-8): {inner_exc}"
-                )
-
-            raise ValueError("Failed to read CSV file with any supported encoding")
-        elif self.path.suffix.lower() == ".json":
-            return duckdb.read_json(path_str)
-        else:
-            raise ValueError(f"File extension {self.path.suffix} is not supported")
-
-    def __del__(self):
-        self._cleanup_tmp_csv()
-
-    def _detect_encoding(self) -> str:
-        """
-        Best-effort CSV encoding detection.
-        Uses chardet when available, otherwise falls back to cp1252 (common on Windows).
-        """
-
-        try:
-            with open(self.path, "rb") as buffer:
-                sample = buffer.read(8192)
-            result = chardet.detect(sample) or {}
-            return result.get("encoding") or "cp1252"
-        except Exception as exc:
-            logger.warning(f"Encoding detection failed, defaulting to cp1252: {exc}")
-            return "cp1252"
-
-    def _cleanup_tmp_csv(self):
-        """Remove any temporary CSV created during encoding conversion."""
-        if self._tmp_csv_path and self._tmp_csv_path.exists():
-            try:
-                self._tmp_csv_path.unlink()
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to remove temp CSV '{self._tmp_csv_path}': {exc}"
-                )
-        self._tmp_csv_path = None
 
     def validate(self):
         assert (
@@ -204,9 +113,6 @@ class Reader:
             if table.num_rows < chunksize:
                 break
             offset += chunksize
-
-    def get_total_rows(self) -> int:
-        return self.total_rows
 
     def get_nth_batch(self, n: int, as_df: bool = True):
         logger.debug(
@@ -273,11 +179,77 @@ class Reader:
         logger.debug(f"Getting unique values for column: {column_name}")
         return self.duckdf_query.unique(column_name).to_df()[column_name].to_list()  # type: ignore
 
+    def _update_row_metadata(self):
+        try:
+            count_relation = self.duckdf_query.aggregate("COUNT(*) AS total_rows")
+            count_df = count_relation.to_df()
+            if not count_df.empty:
+                self.total_view_rows = int(count_df.iloc[0, 0])
+            else:
+                self.total_view_rows = 0
+        except Exception as exc:
+            logger.warning(f"Failed to count rows: {exc}")
+            self.total_view_rows = 0
+
+    def _update_column_metadata(self):
+        try:
+            self.columns_query = list(self.duckdf_query.columns)
+        except Exception:
+            self.columns_query = list(self.columns)
+
+    def _empty_dataframe(self) -> pd.DataFrame:
+        """Create an empty DataFrame that preserves column ordering."""
+        return pd.DataFrame(columns=pd.Index(self.columns_query))
+
+    def _read_into_duckdf(self) -> duckdb.DuckDBPyRelation:
+        path_str = str(self.path)
+        logger.debug(f"Reading data from {path_str}")
+        if self.path.suffix.lower() == ".parquet":
+            return duckdb.read_parquet(path_str)
+        elif self.path.suffix.lower() == ".csv":
+            return self._read_csv(path_str)
+        elif self.path.suffix.lower() == ".json":
+            return duckdb.read_json(path_str)
+        else:
+            raise ValueError(f"File extension {self.path.suffix} is not supported")
+
+    def _read_csv(self, path_str: str) -> duckdb.DuckDBPyRelation:
+        self._cleanup_tmp_csv()
+        try:
+            return duckdb.read_csv(path_str, encoding="UTF8")
+        except Exception as exc:
+            logger.warning(f"duckdb.read_csv UTF-8 failed: {exc}")
+
+        encoding = ""
+        try:
+            self._tmp_csv_path, encoding = convert_to_utf8(self.path)
+            return duckdb.read_csv(str(self._tmp_csv_path), encoding="UTF8")
+        except Exception as inner_exc:
+            logger.error(
+                f"Failed to read CSV after encoding conversion ({encoding} -> UTF-8): {inner_exc}"
+            )
+
+        raise ValueError("Failed to read CSV file with any supported encoding")
+
+    def _cleanup_tmp_csv(self):
+        """Remove any temporary CSV created during encoding conversion."""
+        if self._tmp_csv_path and self._tmp_csv_path.exists():
+            try:
+                self._tmp_csv_path.unlink()
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to remove temp CSV '{self._tmp_csv_path}': {exc}"
+                )
+        self._tmp_csv_path = None
+
     def __str__(self):
         return f"<ParVuDataReader:{self.path.as_posix()}[{self.columns}]>"
 
     def __repr__(self):
         return self.__str__()
+
+    def __del__(self):
+        self._cleanup_tmp_csv()
 
 
 class Data:
@@ -298,8 +270,6 @@ class Data:
         )
 
         self.ftype = "pq" if self.path.suffix == ".parquet" else "txt"
-        # total_batches calculated on demand to avoid full materialization
-        self.total_batches: int | str = "???"
         self.columns = self.reader.columns.copy()
 
         logger.info(
@@ -342,7 +312,6 @@ class Data:
             f"Executing query: '{query}' with page size: {self.reader.batchsize}"
         )
         result = self.reader.query(query, as_df)
-        self.total_batches = self.calc_n_batches()
         return result
 
     def search(
@@ -356,19 +325,20 @@ class Data:
     def calc_n_batches(self) -> int:
         """Calculate how many batches exist for the current relation."""
         chunksize = max(1, self.reader.batchsize)
-        total_rows = self.reader.get_total_rows()
+        total_view_rows = self.reader.total_view_rows
         logger.debug(
-            f"Calculating number of batches with chunksize: {chunksize}, total_rows: {total_rows}"
+            f"Calculating number of batches with chunksize: {chunksize}, total_view_rows: {total_view_rows}"
         )
-        if total_rows == 0:
-            self.total_batches = 0
+        if total_view_rows == 0:
             return 0
-        batches = math.ceil(total_rows / chunksize)
-        self.total_batches = batches
+        batches = math.ceil(total_view_rows / chunksize)
         return batches
 
-    def calc_total_rows(self) -> int:
-        return self.reader.get_total_rows()
+    def get_total_rows(self) -> int:
+        return self.reader.total_rows
+
+    def get_total_view_rows(self) -> int:
+        return self.reader.total_view_rows
 
     def reset_duckdb(self):
         """reset query result table to file table"""

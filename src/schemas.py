@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Union
+from typing import ClassVar, Union
 import shutil
 
 from pydantic import BaseModel
@@ -32,6 +32,14 @@ class Settings(BaseModel):
         max_rows: str - max rows for limit in sql query
         instance_mode: str - "single" (default) or "multi_window"
     """
+
+    # UI constants
+    BASE_TITLE: ClassVar[str] = "ParVuEx v1.2.0"
+
+    RESULT_TABLE_ROW_HEIGHT: ClassVar[int] = 25
+    MAX_COLUMN_WIDTH: ClassVar[int] = 600
+    SQL_EDIT_CLEAN_BORDER: ClassVar[str] = "1px solid black"
+    SQL_EDIT_DIRTY_BORDER: ClassVar[str] = "3px dotted #c1121f"
 
     # data
     default_data_var_name: str

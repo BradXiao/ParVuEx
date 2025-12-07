@@ -1,11 +1,15 @@
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from io import StringIO
 import math
 import sys
 from PyQt5.QtGui import QFont, QTextDocument
 import re
+from PyQt5.QtWidgets import QWidget
 import duckdb
 import json
+
+if TYPE_CHECKING:
+    from src.schemas import Settings
 
 
 MAX_VALUE_COUNT_ROWS = 200
@@ -386,3 +390,59 @@ def markdown_to_html_with_table_styles(markdown_text: str, table_font: QFont) ->
     if "<head>" in html:
         return html.replace("<head>", f"<head>{style_block}", 1)
     return f"{style_block}{html}"
+
+
+def normalize_instance_mode_value(value: str | None) -> str:
+    _MULTI_MODE_TOKENS = {
+        "multi",
+        "multi_instance",
+        "multi-instance",
+        "multiwindow",
+        "multi_window",
+        "multiwindows",
+        "multiple",
+        "windows",
+        "true",
+        "yes",
+        "on",
+    }
+    _SINGLE_MODE_TOKENS = {
+        "single",
+        "single_instance",
+        "single-instance",
+        "singlewindow",
+        "single_window",
+        "one",
+        "1",
+        "false",
+        "no",
+        "off",
+    }
+    if value is None:
+        return "single"
+    normalized = str(value).strip().lower()
+    if normalized in ("single", "multi_window"):
+        return normalized
+    if normalized in _MULTI_MODE_TOKENS:
+        return "multi_window"
+    if normalized in _SINGLE_MODE_TOKENS:
+        return "single"
+    raise ValueError(f"Unsupported instance mode value: {value}")
+
+
+def get_instance_mode(settings: Settings) -> str:
+    raw_mode = getattr(settings, "instance_mode", "single")
+    try:
+        return normalize_instance_mode_value(raw_mode)
+    except ValueError:
+        return "single"
+
+
+def is_multi_window_mode(settings: Settings) -> bool:
+    return get_instance_mode(settings) == "multi_window"
+
+
+def change_font_size(settings: Settings, component: QWidget):
+    font = component.font()
+    font.setPointSize(int(settings.default_ui_font_size))
+    component.setFont(font)
