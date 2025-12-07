@@ -1,10 +1,15 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, TYPE_CHECKING
 from io import StringIO
 import math
 import sys
 from PyQt5.QtGui import QFont, QTextDocument
 import re
+from PyQt5.QtWidgets import QWidget
 import duckdb
+import json
+
+if TYPE_CHECKING:
+    from src.schemas import Settings
 
 
 MAX_VALUE_COUNT_ROWS = 200
@@ -41,7 +46,7 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
         types = lines[2].strip("│").split("│")
         types = [t.strip() for t in types]
         data_lines = lines[4:-1]
-        data = []
+        data: list[list[str]] = []
         for line in data_lines:
             row = line.strip("│").split("│")
             row = [item.strip() for item in row]
@@ -60,7 +65,7 @@ def render_df_info(duckdf: duckdb.DuckDBPyRelation) -> str:
 
         return h + markdown_table
 
-    except Exception as e:
+    except:
         return h + "\n" + descr
 
 
@@ -72,13 +77,13 @@ def _escape_identifier(identifier: str) -> str:
 def _collect_value_counts(
     relation: duckdb.DuckDBPyRelation,
     column: str,
-) -> Tuple[List[Tuple[Any, int]], int]:
+) -> tuple[list[tuple[Any, int]], int]:
     escaped_column = _escape_identifier(column)
     counts_relation = relation.aggregate(
         f"{escaped_column} AS value, COUNT(*) AS value_count GROUP BY 1"
     ).order("value_count DESC")
     rows = counts_relation.fetchall()
-    normalized: List[Tuple[Any, int]] = []
+    normalized: list[tuple[Any, int]] = []
     total = 0
     for raw_value, raw_count in rows:
         count = 0
@@ -92,7 +97,9 @@ def _collect_value_counts(
     return normalized, total
 
 
-def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
+def _format_value_cell(
+    value: Any, limit_max_chars: bool = True, json_format: bool = False
+) -> str:
     if value is None:
         return "None"
 
@@ -110,7 +117,17 @@ def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
     else:
         display = str(value)
 
+    if json_format and (display.startswith("{") or display.startswith("[")):
+        try:
+            display = json.dumps(json.loads(display), indent="\t", ensure_ascii=False)
+            display = display.replace("\n", "%%BR%%")
+            display = display.replace("\t", "%%TAB%%")
+            display = f"<div>{display}</div>"
+        except:
+            pass
+
     display = display.replace("|", "\\|").replace("\n", " ").strip()
+
     if not display:
         display = "(empty)"
 
@@ -119,7 +136,7 @@ def _format_value_cell(value: Any, limit_max_chars: bool = True) -> str:
     return display
 
 
-def _apply_none_row_highlight(value: Any, cells: List[str]) -> List[str]:
+def _apply_none_row_highlight(value: Any, cells: list[str]) -> list[str]:
     if value is None:
         return [
             f'<span style="{NONE_ROW_HIGHLIGHT_STYLE}">{cell}</span>' for cell in cells
@@ -127,24 +144,16 @@ def _apply_none_row_highlight(value: Any, cells: List[str]) -> List[str]:
     return cells
 
 
-def _format_count_cell(count: Optional[int]) -> str:
-    if count is None:
-        return ""
-    return f"{count:,}"
-
-
-def _format_count_cell_with_percentage(
-    count: Optional[int], total: Optional[int]
-) -> str:
+def _format_count_cell_with_percentage(count: int | None, total: int | None) -> str:
     if count is None or total is None:
         return ""
     return f"{count:,}  ({count/total:03.0%})"
 
 
 def render_column_value_counts(
-    current_view: Optional[duckdb.DuckDBPyRelation],
+    current_view: duckdb.DuckDBPyRelation | None,
     column: str,
-    full_view: Optional[duckdb.DuckDBPyRelation] = None,
+    full_view: duckdb.DuckDBPyRelation | None = None,
     max_rows: int = MAX_VALUE_COUNT_ROWS,
 ) -> str:
     title_line = f"### Value counts for `{column}`"
@@ -179,9 +188,9 @@ def render_column_value_counts(
             f"{exc}"
         )
 
-    all_counts: List[Tuple[Any, int]] = []
-    all_total: Optional[int] = None
-    all_error: Optional[str] = None
+    all_counts: list[tuple[Any, int]] = []
+    all_total: int | None = None
+    all_error: str | None = None
 
     if full_column_available:
         try:
@@ -199,8 +208,8 @@ def render_column_value_counts(
 
     header = f"{title_line}\n{' | '.join(summary_parts)}\n{separator_line}\n"
 
-    current_dict: Dict[Any, int] = {value: count for value, count in current_counts}
-    all_dict: Dict[Any, int] = {value: count for value, count in all_counts}
+    current_dict: dict[Any, int] = {value: count for value, count in current_counts}
+    all_dict: dict[Any, int] = {value: count for value, count in all_counts}
     combined_values = set(current_dict.keys()) | set(all_dict.keys())
 
     if not combined_values:
@@ -222,7 +231,7 @@ def render_column_value_counts(
         value_order = value_order[:max_rows]
         truncated = True
 
-    notes: List[str] = []
+    notes: list[str] = []
     lines = ["<br/><br/><br/>", "#### Order by counts", ""]
     lines += ["| Value | Current view | All |", "| --- | ---: | ---: |"]
     for value in value_order:
@@ -270,7 +279,7 @@ def render_column_value_counts(
         notes.append(all_error)
     notes_block = ("\n\n\n" + "\n".join(notes) + "") if notes else ""
     # `` show all lines
-    additional_lines = []
+    additional_lines: list[str] = []
     if truncated:
         additional_lines.append("\n\n")
         additional_lines.append("<br/><br/><br/>")
@@ -306,7 +315,7 @@ def render_column_value_counts(
 
 
 def render_row_values(
-    row_values: Dict[str, Any],
+    row_values: dict[str, Any],
 ) -> str:
     title_line = f"### Values for selected row"
     separator_line = "-" * 50
@@ -323,7 +332,11 @@ def render_row_values(
         column_display = column_name.replace("|", "\\|").replace("\n", " ").strip()
         cells = [
             column_display,
-            _format_value_cell(value, limit_max_chars=False),
+            _format_value_cell(
+                value,
+                limit_max_chars=False,
+                json_format=False if isinstance(value, str) == False else True,
+            ),
         ]
         highlighted_cells = _apply_none_row_highlight(value, cells)
         lines.append("| " + " | ".join(highlighted_cells) + " |")
@@ -334,14 +347,14 @@ def render_row_values(
 def _apply_zebra_striping(html: str) -> str:
     """Add inline background color to odd-numbered table rows."""
 
-    def replace_tr(match: re.Match) -> str:
+    def replace_tr(match: re.Match[str]) -> str:
         before_table = match.group(1)
         table_content = match.group(2)
         after_table = match.group(3)
 
         row_idx = 0
 
-        def style_row(row_match: re.Match) -> str:
+        def style_row(row_match: re.Match[str]) -> str:
             nonlocal row_idx
             row_idx += 1
             tag = row_match.group(0)
@@ -370,8 +383,66 @@ def markdown_to_html_with_table_styles(markdown_text: str, table_font: QFont) ->
     doc.setDefaultFont(table_font)
     doc.setMarkdown(markdown_text)
     html = doc.toHtml()
+    html = html.replace("%%BR%%", "<br>")
+    html = html.replace("%%TAB%%", "&nbsp;&nbsp;&nbsp;&nbsp;")
     html = _apply_zebra_striping(html)
     style_block = f"<style>{TABLE_MARKDOWN_STYLESHEET}</style>"
     if "<head>" in html:
         return html.replace("<head>", f"<head>{style_block}", 1)
     return f"{style_block}{html}"
+
+
+def normalize_instance_mode_value(value: str | None) -> str:
+    _MULTI_MODE_TOKENS = {
+        "multi",
+        "multi_instance",
+        "multi-instance",
+        "multiwindow",
+        "multi_window",
+        "multiwindows",
+        "multiple",
+        "windows",
+        "true",
+        "yes",
+        "on",
+    }
+    _SINGLE_MODE_TOKENS = {
+        "single",
+        "single_instance",
+        "single-instance",
+        "singlewindow",
+        "single_window",
+        "one",
+        "1",
+        "false",
+        "no",
+        "off",
+    }
+    if value is None:
+        return "single"
+    normalized = str(value).strip().lower()
+    if normalized in ("single", "multi_window"):
+        return normalized
+    if normalized in _MULTI_MODE_TOKENS:
+        return "multi_window"
+    if normalized in _SINGLE_MODE_TOKENS:
+        return "single"
+    raise ValueError(f"Unsupported instance mode value: {value}")
+
+
+def get_instance_mode(settings: Settings) -> str:
+    raw_mode = getattr(settings, "instance_mode", "single")
+    try:
+        return normalize_instance_mode_value(raw_mode)
+    except ValueError:
+        return "single"
+
+
+def is_multi_window_mode(settings: Settings) -> bool:
+    return get_instance_mode(settings) == "multi_window"
+
+
+def change_font_size(settings: Settings, component: QWidget):
+    font = component.font()
+    font.setPointSize(int(settings.default_ui_font_size))
+    component.setFont(font)

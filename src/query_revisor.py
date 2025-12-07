@@ -1,7 +1,6 @@
 import re
 from typing import Union
-
-from schemas import settings, BadQueryException
+from schemas import BadQueryException
 
 
 class Revisor:
@@ -16,33 +15,7 @@ class Revisor:
         result = re.sub(r"\s+", " ", query)
         return result.strip().lower()
 
-    def _rule_limit_range(self) -> str:
-        """limit value must be between 0 and settings.max_rows"""
-        if "limit" in self.query:
-            limit = re.findall(r"limit\s+([0-9]+)", self.query)
-            if not limit:
-                return BadQueryException(
-                    name="No LIMIT", message="The query must contain a limit."
-                )
-
-            if not limit[0].isdigit():
-                return BadQueryException(
-                    name="Parse Error",
-                    message=f"Unable to parse LIMIT valie: '{limit}'",
-                )
-
-            limit = int(limit[0])
-            if not (0 <= limit <= int(settings.max_rows)):
-                fixed_query = self.query.replace(
-                    f"limit {limit}", f"LIMIT {settings.max_rows}"
-                )
-                return BadQueryException(
-                    name="Bad Limit Range",
-                    message=f"The LIMIT value must be between 0 and {settings.max_rows}.",
-                    result=fixed_query,
-                )
-
-    def _rule_no_joins(self) -> str:
+    def _rule_no_joins(self) -> BadQueryException | None:
         """no join'ly queries are allowed"""
         if {"left", "right", "full", "inner", "join"}.intersection(
             set(self.query.split())
@@ -54,7 +27,6 @@ class Revisor:
 
     def run(self) -> Union[bool, BadQueryException]:
         """Run all rules"""
-        # rules = [self._rule_limit_range, self._rule_no_joins, ]
         rules = [
             self._rule_no_joins,
         ]
@@ -64,9 +36,3 @@ class Revisor:
                 return rule_res
 
         return True
-
-
-if __name__ == "__main__":
-
-    query = """  select * \nfrom     data limit  10000  """
-    print(Revisor(query).run())
