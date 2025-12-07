@@ -186,10 +186,7 @@ class MenuController:
             return
 
         self._close_file()
-        self._parent.data_container.open_file_path(
-            fileName, add_to_recents=True, auto_execute=False
-        )
-        self._parent.sql_edit_controller.execute_query(add_to_history=False)
+        self._parent.data_container.open_file_path(fileName, add_to_recents=True)
 
     def _close_file(self):
         if not self._parent.data_container.is_file_open():
