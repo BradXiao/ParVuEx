@@ -34,13 +34,9 @@ class DialogController:
         text_browser = SearchableTextBrowser(dialog)
         table_font = QFont(
             self.settings.default_result_font,
-            int(self.settings.default_result_font_size),
-        )
-        text_browser.setFont(table_font)
-        table_font = QFont(
-            self.settings.default_result_font,
             int(self.settings.default_result_font_size) + font_offset,
         )
+        text_browser.setFont(table_font)
         styled_html = markdown_to_html_with_table_styles(table_info, table_font)
         text_browser.setHtml(styled_html)
         text_browser.setReadOnly(True)
@@ -68,6 +64,11 @@ class DialogController:
         dialog = Popup(self._parent, title)
 
         text_browser = SearchableTextBrowser(dialog)
+        table_font = QFont(
+            self.settings.default_result_font,
+            int(self.settings.default_result_font_size),
+        )
+        text_browser.setFont(table_font)
         text_browser.setMarkdown(text)
         text_browser.setReadOnly(True)
 

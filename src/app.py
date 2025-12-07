@@ -361,7 +361,6 @@ class ParquetSQLApp(QMainWindow):
             ctrl_only = bool(modifiers & Qt.ControlModifier) and not (
                 modifiers & (Qt.ShiftModifier | Qt.AltModifier)
             )  # type: ignore
-            print(f"fire {key} {modifiers}")
             if ctrl_only and key in (Qt.Key_Up, Qt.Key_Down):
                 if self.sql_edit_controller.handle_history_hotkeys(key):
                     return True
