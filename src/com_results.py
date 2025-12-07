@@ -503,9 +503,10 @@ class ResultsController:
         self.result_table.set_page(page)
         self.result_table.update_page_row_info()
         self.result_table.set_page_df(df)
-        self._parent.sql_edit_controller.update_highlighter_columns(
-            self.result_table.get_column_names()
-        )
+        if self._parent.data_container.data:
+            self._parent.sql_edit_controller.update_highlighter_columns(
+                self._parent.data_container.data.columns,
+            )
         if query.strip():
             self._parent.data_container.queried = query
         self._parent.sql_edit_controller.handle_edit_check()
