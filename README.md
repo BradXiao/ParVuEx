@@ -1,6 +1,6 @@
 # ParVuEx - **Par**quet **Vie**wer **Ex**tended
 
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/main.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/main.png" width="350">
 
 ## Overview
 
@@ -10,7 +10,7 @@ This application allows you to execute SQL queries on Parquet/CSV files. Uses [D
 
 #### Redesign UI
 
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/highlighting.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/highlighting.png" width="700">
 
 -   Enhanced SQL statement highlighting
     -   Support column names highlighting
@@ -27,15 +27,15 @@ This application allows you to execute SQL queries on Parquet/CSV files. Uses [D
 
 #### SQL Edit
 
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/insert_selected_columns.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/insert_selected_columns.png" width="700">
 
 -   Support inserting specific columns
 
 #### Statistics
 
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png" width="400">
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/table_info.png" width="400">
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts_highlight.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts.png" width="700">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/table_info.png" width="700">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/value_counts_highlight.png" width="700">
 
 -   Value counts
     -   Show statistics on selected columns
@@ -51,7 +51,7 @@ This application allows you to execute SQL queries on Parquet/CSV files. Uses [D
     -   Minimize to tray
 -   Support single/multi windows
 
-<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/multi_windows.png" width="400">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/multi_windows.png" width="700">
 
 #### Others
 
