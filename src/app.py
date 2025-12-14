@@ -358,6 +358,20 @@ class ParquetSQLApp(QMainWindow):
                 return False
             key = event.key()
             modifiers = event.modifiers()
+
+            if self.sql_edit_controller.is_completion_visible():
+                has_selection = self.sql_edit_controller.has_completion_selection()
+                if (
+                    key in (Qt.Key_Return, Qt.Key_Enter)
+                    and not (modifiers & Qt.ShiftModifier)
+                    and not has_selection
+                ):  # type: ignore
+                    self.sql_edit_controller.hide_completion_popup()
+                    self.sql_edit_controller.execute_query()
+                    return True
+                self.sql_edit_controller.handle_edit_check()
+                return False
+
             ctrl_only = bool(modifiers & Qt.ControlModifier) and not (
                 modifiers & (Qt.ShiftModifier | Qt.AltModifier)
             )  # type: ignore

@@ -544,9 +544,9 @@ class ResultsController:
         self.result_table.update_page_row_info()
         self.result_table.set_page_df(df)
         if self._parent.data_container.data:
-            self._parent.sql_edit_controller.update_highlighter_columns(
-                self._parent.data_container.data.columns,
-            )
+            columns = self._parent.data_container.data.columns
+            self._parent.sql_edit_controller.update_highlighter_columns(columns)
+            self._parent.sql_edit_controller.update_auto_complete_words(columns)
         if query.strip():
             self._parent.data_container.queried = query
         self._parent.sql_edit_controller.handle_edit_check()

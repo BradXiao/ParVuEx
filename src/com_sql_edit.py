@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
-from PyQt5.QtCore import QPoint, QTimer, Qt
-from PyQt5.QtGui import QTextCursor
+from PyQt5.QtCore import QPoint, QTimer, Qt, QStringListModel, pyqtSignal
+from PyQt5.QtGui import QKeyEvent, QTextCursor
 from PyQt5.QtWidgets import (
+    QCompleter,
     QPushButton,
     QTextEdit,
 )
@@ -16,6 +17,198 @@ if TYPE_CHECKING:
     from com_dialog import DialogController
     from components import DataContainer
     from com_results import ResultsController
+
+
+class AutoCompleteTextEdit(QTextEdit):
+    execute_requested = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._completer: QCompleter | None = None
+        self._string_list_model: QStringListModel | None = None
+        self._all_completions: list[str] = []
+        self._recent_completions: list[str] = []
+
+    def set_completer(self, completer: QCompleter):
+        if self._completer is not None:
+            try:
+                self._completer.activated.disconnect(self.insert_completion)
+            except TypeError:
+                pass
+        self._completer = completer
+        self._completer.setWidget(self)
+        self._completer.activated.connect(self.insert_completion)
+        model = completer.model()
+        self._string_list_model = model if isinstance(model, QStringListModel) else None
+
+    def insert_completion(self, completion: str):
+        if not self._completer:
+            return
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.WordUnderCursor)
+        cursor.insertText(completion)
+        self.setTextCursor(cursor)
+        self._record_completion_use(completion)
+
+    def _record_completion_use(self, completion: str):
+        trimmed = completion.strip()
+        if not trimmed:
+            return
+        if trimmed in self._recent_completions:
+            self._recent_completions.remove(trimmed)
+        self._recent_completions.insert(0, trimmed)
+        if len(self._recent_completions) > 5:
+            self._recent_completions = self._recent_completions[:5]
+
+    @staticmethod
+    def _normalize_for_match(value: str) -> str:
+        return value.replace("_", "").replace(" ", "").lower()
+
+    @staticmethod
+    def _is_subsequence(query: str, target: str) -> bool:
+        if not query:
+            return True
+        qi = 0
+        for ch in target:
+            if ch == query[qi]:
+                qi += 1
+                if qi == len(query):
+                    return True
+        return False
+
+    def set_completion_words(self, words: list[str]):
+        self._all_completions = list(words)
+
+    def is_completion_visible(self) -> bool:
+        return bool(self._completer and self._completer.popup().isVisible())
+
+    def hide_completion_popup(self):
+        if self._completer:
+            self._completer.popup().hide()
+
+    def _text_under_cursor(self) -> str:
+        cursor = self.textCursor()
+        block = cursor.block()
+        text = block.text()
+        block_pos = cursor.position() - block.position()
+
+        def is_word_char(ch: str) -> bool:
+            return ch.isalnum() or ch == "_"
+
+        start = block_pos
+        end = block_pos
+
+        while start > 0 and is_word_char(text[start - 1]):
+            start -= 1
+        while end < len(text) and is_word_char(text[end]):
+            end += 1
+
+        if start == end and end < len(text) and is_word_char(text[end]):
+            while end < len(text) and is_word_char(text[end]):
+                end += 1
+
+        return text[start:end]
+
+    def keyPressEvent(self, event: QKeyEvent):
+        print(event.key())
+        if self._completer and self._completer.popup().isVisible():
+            match event.key():
+                case Qt.Key_Enter | Qt.Key_Return:
+                    popup = self._completer.popup()
+                    current_index = popup.currentIndex()
+                    if current_index.isValid():
+                        completion = current_index.data(Qt.DisplayRole)
+                        if completion:
+                            self.insert_completion(completion)
+                        self._completer.popup().hide()
+                        return
+                    else:
+                        self._completer.popup().hide()
+                        self.execute_requested.emit()
+                        return
+                case Qt.Key_Escape | Qt.Key_Tab | Qt.Key_Backtab:
+                    event.ignore()
+                    return
+                case _:
+                    pass
+
+        super().keyPressEvent(event)
+
+        if not self._completer:
+            return
+
+        match event.key():
+            case (
+                Qt.Key_Left
+                | Qt.Key_Right
+                | Qt.Key_Up
+                | Qt.Key_Down
+                | Qt.Key_Home
+                | Qt.Key_End
+                | Qt.Key_PageUp
+                | Qt.Key_PageDown
+            ):
+                self._completer.popup().hide()
+                return
+            case _:
+                pass
+
+        if not event.text() and event.key() not in (Qt.Key_Backspace, Qt.Key_Delete):
+            self._completer.popup().hide()
+            return
+
+        completion_prefix = self._text_under_cursor()
+        if not completion_prefix:
+            self._completer.popup().hide()
+            return
+
+        prefix_normalized = self._normalize_for_match(completion_prefix)
+        source_words = self._all_completions or (
+            self._string_list_model.stringList()
+            if self._string_list_model is not None
+            else []
+        )
+        matches = [
+            word
+            for word in source_words
+            if self._is_subsequence(prefix_normalized, self._normalize_for_match(word))
+        ]
+        matches = self._sort_matches_by_recent_usage(matches)
+        if (
+            len(matches) == 1
+            and self._normalize_for_match(matches[0]) == prefix_normalized
+        ):
+            self._completer.popup().hide()
+            return
+
+        if not matches:
+            self._completer.popup().hide()
+            return
+
+        if self._string_list_model is not None:
+            self._string_list_model.setStringList(matches)
+        self._completer.setCompletionPrefix("")  # avoid Qt re-filtering by underscores
+        popup = self._completer.popup()
+        popup.setCurrentIndex(self._completer.completionModel().index(0, 0))
+
+        cursor_rect = self.cursorRect()
+        cursor_rect.setWidth(
+            self._completer.popup().sizeHintForColumn(0)
+            + self._completer.popup().verticalScrollBar().sizeHint().width()
+        )
+        self._completer.complete(cursor_rect)
+
+    def _sort_matches_by_recent_usage(self, matches: list[str]) -> list[str]:
+        if not self._recent_completions:
+            return matches
+        prioritized = []
+        seen: set[str] = set()
+        for recent in self._recent_completions:
+            if recent in matches and recent not in seen:
+                prioritized.append(recent)
+                seen.add(recent)
+        prioritized.extend([m for m in matches if m not in seen])
+        return prioritized
 
 
 class SqlEditController:
@@ -36,8 +229,13 @@ class SqlEditController:
         self._history_index: int | None = None
         self._history_snapshot: str | None = None
         self._highlighter = None
+        self._auto_complete_model = QStringListModel()
+        self._auto_complete_completer = QCompleter(self._auto_complete_model)
+        self._auto_complete_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._auto_complete_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._auto_complete_completer.setFilterMode(Qt.MatchContains)
         # init ui
-        self.sql_edit = QTextEdit()
+        self.sql_edit = AutoCompleteTextEdit()
         self.sql_edit.setAcceptRichText(False)
         self.sql_edit.setPlainText(settings.render_vars(settings.default_sql_query))
         self.sql_edit.setMaximumHeight(90)
@@ -45,6 +243,9 @@ class SqlEditController:
         self.sql_edit.customContextMenuRequested.connect(
             self._show_sql_edit_context_menu
         )
+        self.sql_edit.set_completer(self._auto_complete_completer)
+        self.sql_edit.execute_requested.connect(self.execute_query)
+        self.update_auto_complete_words([])
 
         self.execute_button = QPushButton("Execute")
         self.execute_button.setFixedSize(120, 25)
@@ -68,6 +269,31 @@ class SqlEditController:
     def update_highlighter_columns(self, columns: list[str]):
         if self._highlighter is not None:
             self._highlighter.update_columns(columns)
+
+    def update_auto_complete_words(self, words: list[str]):
+        base_words = [
+            self._settings.render_vars(self._settings.default_data_var_name),
+            *self._settings.sql_keywords,
+        ]
+        merged_words = base_words + words
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for word in merged_words:
+            if not word:
+                continue
+            lowered = word.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            deduped.append(word)
+        self._auto_complete_model.setStringList(deduped)
+        self.sql_edit.set_completion_words(deduped)
+
+    def is_completion_visible(self) -> bool:
+        return self.sql_edit.is_completion_visible()
+
+    def hide_completion_popup(self):
+        self.sql_edit.hide_completion_popup()
 
     def toggle_table_info(self):
         data = self._data_container.data
