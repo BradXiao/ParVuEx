@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 from typing import TYPE_CHECKING, Any, cast
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAction,
     QHBoxLayout,
@@ -48,13 +49,13 @@ class ResultsTable(QTableWidget):
         self._total_row_count: int | None = None
         self._rows_per_page: int = 0
         self._is_applying_column_widths = False
+        self._zebra_striping_enabled = False
         self._deleyed_column_saving = QTimer()
         self._deleyed_column_saving.setSingleShot(True)
         self._deleyed_column_saving.timeout.connect(self._save_column_widths)
         self.last_column_widths: list[tuple[str, int]] | None = None
         self.is_error = False
         # init ui
-        self.setStyleSheet(f"background-color: {settings.colour_resultTable}")
         self.setWordWrap(True)
         self._wrap_delegate = AutoWrapDelegate(self, min_wrapped_lines=2)
         self.setItemDelegate(self._wrap_delegate)
@@ -62,6 +63,38 @@ class ResultsTable(QTableWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.installEventFilter(self)
         self.viewport().installEventFilter(self)
+        self.apply_row_colors()
+
+    def toggle_zebra_striping(self):
+        self._zebra_striping_enabled = not self._zebra_striping_enabled
+        self.apply_row_colors()
+
+    def is_zebra_striping_enabled(self) -> bool:
+        return self._zebra_striping_enabled
+
+    def apply_row_colors(self):
+        base_color = QColor(self._settings.colour_resultTable)
+        if not base_color.isValid():
+            base_color = QColor("#ffffff")
+        lightness = base_color.lightness()
+        if lightness < 128:
+            alternate_color = base_color.lighter(115)
+        else:
+            alternate_color = base_color.darker(110)
+        if self._zebra_striping_enabled:
+            self.setAlternatingRowColors(True)
+            self.setStyleSheet(
+                (
+                    "QTableWidget {"
+                    f"background-color: {base_color.name()};"
+                    f"alternate-background-color: {alternate_color.name()};"
+                    "}"
+                    "QTableWidget::item:selected { background-color: palette(highlight); }"
+                )
+            )
+        else:
+            self.setAlternatingRowColors(False)
+            self.setStyleSheet(f"background-color: {base_color.name()}")
 
     def reset_table_size(self):
         if not self._data_container.is_file_open():
@@ -353,9 +386,7 @@ class ResultsController:
         self.result_table.last_column_widths = None
 
     def apply_styles(self):
-        self.result_table.setStyleSheet(
-            f"background-color: {self._settings.colour_resultTable}"
-        )
+        self.result_table.apply_row_colors()
         header = self.result_table.horizontalHeader()
         if header:
             header.setStyleSheet("QHeaderView::section { padding: 6px 4px; }")
@@ -479,6 +510,15 @@ class ResultsController:
 
     def reset_table_size(self):
         self.result_table.reset_table_size()
+
+    def toggle_zebra_striping(self):
+        self.result_table.toggle_zebra_striping()
+        if self._parent and hasattr(self._parent, "menu_controller"):
+            action = getattr(
+                self._parent.menu_controller, "toggle_zebra_striping_action", None
+            )
+            if action is not None:
+                action.setChecked(self.result_table.is_zebra_striping_enabled())
 
     def handle_page_hotkeys(self, key: int):
         match key:
