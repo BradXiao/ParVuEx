@@ -67,6 +67,15 @@ class MenuController:
         self.reset_table_size_action.triggered.connect(
             self._parent.result_controller.reset_table_size
         )
+        self.toggle_zebra_striping_action = QAction("Toggle zebra striping", parent)
+        self.toggle_zebra_striping_action.setCheckable(True)
+        self.toggle_zebra_striping_action.setChecked(
+            self._parent.result_controller.result_table.is_zebra_striping_enabled()
+        )
+        action_menu.addAction(self.toggle_zebra_striping_action)
+        self.toggle_zebra_striping_action.triggered.connect(
+            self._parent.result_controller.toggle_zebra_striping
+        )
 
         self.update_recents_menu()
         # help
@@ -119,6 +128,7 @@ class MenuController:
         self.close_file_action.setEnabled(has_file)
         self.export_action.setEnabled(has_file)
         self.reset_table_size_action.setEnabled(has_file)
+        self.toggle_zebra_striping_action.setEnabled(has_file)
         self.reload_action.setEnabled(has_file)
         self.update_instance_actions()
         if not has_file:
