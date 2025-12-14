@@ -77,7 +77,7 @@ def _escape_identifier(identifier: str) -> str:
 def _collect_value_counts(
     relation: duckdb.DuckDBPyRelation,
     column: str,
-) -> tuple[list[tuple[Any, int]], int]:
+) -> tuple[list[tuple[Any, int]], int, int]:
     escaped_column = _escape_identifier(column)
     counts_relation = relation.aggregate(
         f"{escaped_column} AS value, COUNT(*) AS value_count GROUP BY 1"
@@ -85,8 +85,10 @@ def _collect_value_counts(
     rows = counts_relation.fetchall()
     normalized: list[tuple[Any, int]] = []
     total = 0
+    distinct_items: set[Any] = set()
     for raw_value, raw_count in rows:
         count = 0
+        distinct_items.add(raw_value)
         if raw_count is not None:
             try:
                 count = int(raw_count)
@@ -94,7 +96,7 @@ def _collect_value_counts(
                 count = 0
         normalized.append((raw_value, count))
         total += count
-    return normalized, total
+    return normalized, total, len(distinct_items)
 
 
 def _format_value_cell(
@@ -181,7 +183,10 @@ def render_column_value_counts(
     full_column_available = full_columns is None or column in full_columns
 
     try:
-        current_counts, current_total = _collect_value_counts(current_view, column)
+        current_counts, current_total, current_distinct = _collect_value_counts(
+            current_view, column
+        )
+        current_distinct_text = f"{current_distinct:,}"
     except Exception as exc:
         return (
             f"{title_line}\nFailed to compute value counts for the current view.\n\n"
@@ -194,11 +199,15 @@ def render_column_value_counts(
 
     if full_column_available:
         try:
-            all_counts, all_total = _collect_value_counts(full_view, column)
+            all_counts, all_total, all_distinct = _collect_value_counts(
+                full_view, column
+            )
+            all_distinct_text = f"{all_distinct:,}"
         except Exception as exc:
             all_error = f"Unable to compute counts for the original data: {exc}"
     else:
         all_error = "Column not present in the original dataset."
+        all_distinct_text = f"n/a"
 
     summary_parts = [f"Rows (current view): {current_total:,}"]
     if all_total is not None:
@@ -232,7 +241,14 @@ def render_column_value_counts(
         truncated = True
 
     notes: list[str] = []
-    lines = ["<br/><br/><br/>", "#### Order by counts", ""]
+    lines = ["<br/><br/><br/>", "#### Values info", ""]
+    lines += ["| Item | Current view | All |", "| --- | ---: | ---: |"]
+    lines += [f"| Distinct | {current_distinct_text} | {all_distinct_text} |"]
+
+    lines.append("")
+    lines.append("<br/><br/><br/>")
+    lines.append("")
+    lines += ["#### Order by counts", ""]
     lines += ["| Value | Current view | All |", "| --- | ---: | ---: |"]
     for value in value_order:
         cells = [
