@@ -3,7 +3,7 @@
 
 a = Analysis(
     ["src/main.py"],
-    pathex=[],
+    pathex=["src"],
     binaries=[],
     datas=[
         ("src/schemas.py", "."),
@@ -20,7 +20,17 @@ a = Analysis(
         ("src/settings/default_settings.json", "./settings/"),
         ("src/history/recents.json", "./history/"),
     ],
-    hiddenimports=["pydantic", "loguru", "duckdb", "pandas", "chardet"],
+    hiddenimports=[
+        "pydantic",
+        "loguru",
+        "duckdb",
+        "pandas",
+        "chardet",
+        "com_menu",
+        "com_results",
+        "com_sql_edit",
+        "com_dialog",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
