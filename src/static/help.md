@@ -1,6 +1,6 @@
 # ParVuEx Help
 
-## `v1.2.0`
+## `v1.3.0`
 
 ### Overview
 
@@ -16,11 +16,13 @@ This application allows you to execute SQL queries on Parquet files.
     -   Support SQL statement history
     -   Auto remember columns width
     -   Enhanced SQL statement highlighting
+    -   Zebra striping for the table
 -   Add new hotkeys
 -   Support launcher
     -   Speedup startup time
     -   Support single/multi windows
 -   SQL Edit
+    -   Auto complete
     -   Support inserting specific columns
 -   Quick statistics
     -   Value counts

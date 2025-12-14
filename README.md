@@ -24,11 +24,14 @@ This application allows you to execute SQL queries on Parquet/CSV files. Uses [D
 -   Simplify pagination
 -   Improve dialogs
 -   Auto remember columns width
+-   Zebra striping for the table
 
 #### SQL Edit
 
 <img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/insert_selected_columns.png" width="700">
+<img src="https://raw.githubusercontent.com/BradXiao/ParVuEx/refs/heads/main/docs/images/auto_complete.png" width="700">
 
+-   Auto complete
 -   Support inserting specific columns
 
 #### Statistics

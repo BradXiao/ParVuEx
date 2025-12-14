@@ -34,7 +34,7 @@ class Settings(BaseModel):
     """
 
     # UI constants
-    BASE_TITLE: ClassVar[str] = "ParVuEx v1.2.0"
+    BASE_TITLE: ClassVar[str] = "ParVuEx v1.3.0"
 
     RESULT_TABLE_ROW_HEIGHT: ClassVar[int] = 25
     MAX_COLUMN_WIDTH: ClassVar[int] = 600
